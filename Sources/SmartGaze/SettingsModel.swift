@@ -15,6 +15,9 @@ final class SettingsModel: ObservableObject {
   }
 
   typealias ConnectionTester = @Sendable (ProviderKind, ProviderSettings) async throws -> Void
+  typealias ExplanationStreamFactory =
+    @Sendable (ProviderKind, ProviderSettings, Data) ->
+    AsyncThrowingStream<String, Error>
 
   @Published private(set) var settings: Settings
   @Published var keyEntry = "" {
@@ -32,6 +35,7 @@ final class SettingsModel: ObservableObject {
   private let store: SettingsStore
   private let secrets: any SecretStore & SecretPresence
   private let connectionTester: ConnectionTester?
+  private let explanationStreamFactory: ExplanationStreamFactory?
 
   private(set) var connectionTask: Task<Void, Never>?
 
@@ -39,11 +43,13 @@ final class SettingsModel: ObservableObject {
     store: SettingsStore,
     secrets: any SecretStore & SecretPresence,
     settings: Settings,
-    connectionTester: ConnectionTester? = nil
+    connectionTester: ConnectionTester? = nil,
+    explanationStreamFactory: ExplanationStreamFactory? = nil
   ) {
     self.store = store
     self.secrets = secrets
     self.connectionTester = connectionTester
+    self.explanationStreamFactory = explanationStreamFactory
     self.settings = settings.clamped()
     refreshStoredKey()
     refreshBaseURLDraft()
@@ -53,12 +59,17 @@ final class SettingsModel: ObservableObject {
 
   var deniedAppIDs: [String] { settings.deniedApps.bundleIDs.sorted() }
 
-  var canTestConnection: Bool {
-    connectionStatus != .testing
-      && hasStoredKey
+  /// The same configuration contract as `Test Connection`: a stored key, a
+  /// committed valid base URL, no unsaved key text and no in-flight probe.
+  var isProviderReady: Bool {
+    hasStoredKey
       && baseURLError == nil
       && baseURLDraft == storedBaseURLString
       && keyEntry.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
+
+  var canTestConnection: Bool {
+    isProviderReady && connectionStatus != .testing
   }
 
   private var storedBaseURLString: String {
@@ -275,6 +286,26 @@ final class SettingsModel: ObservableObject {
         self.connectionStatus = .failure("The provider could not be reached.")
       }
     }
+  }
+
+  /// Builds one streaming explanation request from the stored provider
+  /// settings and Keychain, or `nil` when the configuration is not ready.
+  func makeExplanationStream(imageJPEG: Data) -> AsyncThrowingStream<String, Error>? {
+    guard isProviderReady, let providerSettings = activeProviderSettings else { return nil }
+    if let factory = explanationStreamFactory {
+      return factory(settings.activeProvider, providerSettings, imageJPEG)
+    }
+    let provider = HTTPProvider(
+      kind: settings.activeProvider,
+      settings: providerSettings,
+      secrets: secrets,
+      maximumOutputTokens: 512
+    )
+    return provider.explain(
+      imageJPEG: imageJPEG,
+      prompt: "Explain what this code does in a few sentences.",
+      system: "You are a concise programming assistant."
+    )
   }
 
   func prepareForPresentation() {

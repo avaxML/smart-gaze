@@ -186,6 +186,45 @@ import Testing
   #expect(fixations.first?.sampleCount == 4)
 }
 
+@Test func progressIsZeroBeforeAnyDwell() {
+  let detector = FixationDetector(window: 1.0, dispersionThreshold: 100)
+  #expect(detector.progress == 0)
+}
+
+@Test func progressTracksBufferedSpan() {
+  var detector = FixationDetector(window: 1.0, dispersionThreshold: 100)
+
+  _ = detector.add(CGPoint(x: 100, y: 100), at: 0.0)
+  #expect(detector.progress == 0)
+
+  _ = detector.add(CGPoint(x: 100, y: 100), at: 0.4)
+  #expect(detector.progress == 0.4)
+}
+
+@Test func progressReachesOneWhenWindowIsCovered() {
+  var detector = FixationDetector(window: 1.0, dispersionThreshold: 100)
+
+  for time in [0.0, 0.5, 1.0] {
+    _ = detector.add(CGPoint(x: 100, y: 100), at: time)
+  }
+
+  #expect(detector.progress == 1)
+}
+
+@Test func progressDropsToZeroWhenDispersionBreaksTheCluster() {
+  var detector = FixationDetector(window: 1.0, dispersionThreshold: 100)
+  for time in [0.0, 0.5, 1.0] {
+    _ = detector.add(CGPoint(x: 100, y: 100), at: time)
+  }
+  #expect(detector.progress == 1)
+
+  _ = detector.add(CGPoint(x: 900, y: 900), at: 1.1)
+  #expect(detector.progress == 0)
+
+  detector.reset()
+  #expect(detector.progress == 0)
+}
+
 @Test func movingOutsideThresholdThenSettlingYieldsTwoFixations() {
   var detector = FixationDetector(window: 0.6, dispersionThreshold: 100)
   var fixations: [Fixation] = []

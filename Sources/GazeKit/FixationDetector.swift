@@ -105,6 +105,20 @@ public struct FixationDetector: Sendable {
     buffer.count
   }
 
+  /// How far the current buffer is toward a completed fixation, derived from
+  /// the same span and dispersion the detector already uses. It is `0` until
+  /// two samples exist, rises with the buffered time span, reaches `1` once the
+  /// window is covered, and drops to `0` while dispersion is over the threshold
+  /// because that gaze can no longer complete a fixation.
+  public var progress: Double {
+    guard buffer.count >= 2, window > 0,
+      let oldest = buffer.first, let newest = buffer.last
+    else { return 0 }
+    guard currentDispersion < dispersionThreshold else { return 0 }
+    let span = newest.timestamp - oldest.timestamp
+    return min(max(span / window, 0), 1)
+  }
+
   private func centroid() -> CGPoint {
     var sumX: CGFloat = 0
     var sumY: CGFloat = 0
