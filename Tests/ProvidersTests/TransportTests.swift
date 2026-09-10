@@ -156,6 +156,23 @@ private struct FakeSecrets: SecretStore {
   func delete(account: String) throws {}
 }
 
+private final class BlockingSecrets: SecretStore, @unchecked Sendable {
+  let readEntered = DispatchSemaphore(value: 0)
+  let releaseRead = DispatchSemaphore(value: 0)
+  private let value: String?
+
+  init(value: String?) { self.value = value }
+
+  func read(account: String) throws -> String? {
+    readEntered.signal()
+    releaseRead.wait()
+    return value
+  }
+
+  func write(_ secret: String, account: String) throws {}
+  func delete(account: String) throws {}
+}
+
 private func fixtureSession() -> URLSession {
   let configuration = URLSessionConfiguration.ephemeral
   configuration.protocolClasses = [FixtureURLProtocol.self]
@@ -512,6 +529,49 @@ struct ProviderTransportTests {
     #expect(await wait(fixture.stopped, timeout: .now() + 5))
     #expect(fixture.wasStopped)
     _ = await consumer.value
+  }
+
+  @Test func cancellationDuringSecretReadDoesNotSendRequest() async throws {
+    let host = "cancel-secret.test"
+    let fixture = Fixture(chunks: [], ending: .holdOpen)
+    FixtureRegistry.shared.register(fixture, host: host)
+    let secrets = BlockingSecrets(value: "test-secret")
+    let settings = ProviderSettings(
+      model: "m",
+      baseURL: URL(string: "https://\(host)/v1")!,
+      keychainAccount: .openAIKey
+    )
+    let provider = HTTPProvider(
+      kind: .openai,
+      settings: settings,
+      secrets: secrets,
+      session: fixtureSession()
+    )
+    let consumerFinished = DispatchSemaphore(value: 0)
+    defer {
+      secrets.releaseRead.signal()
+      fixture.markStopped()
+    }
+
+    let consumer = Task {
+      defer { consumerFinished.signal() }
+      let stream = provider.explain(imageJPEG: Data([0xFF, 0xD8]), prompt: "P", system: "S")
+      do {
+        for try await _ in stream {}
+      } catch {}
+    }
+
+    #expect(await wait(secrets.readEntered, timeout: .now() + 5))
+    consumer.cancel()
+    let acknowledged = await wait(consumerFinished, timeout: .now() + 5)
+    try #require(
+      acknowledged,
+      "consumer did not acknowledge cancellation before the secret read was released")
+    secrets.releaseRead.signal()
+
+    let arrived = await wait(fixture.requestReceived, timeout: .now() + 2)
+    #expect(!arrived, "a request was sent after the consumer was cancelled mid secret read")
+    #expect(fixture.capturedRequest == nil)
   }
 
   @Test func crossOriginRedirectIsNotFollowedByTheProtocol() async throws {
