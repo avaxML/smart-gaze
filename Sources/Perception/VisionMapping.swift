@@ -8,8 +8,8 @@ extension FaceObservation {
       let landmarks = face.landmarks,
       let leftEyePoints = Self.imagePoints(from: landmarks.leftEye, in: face.boundingBox),
       let rightEyePoints = Self.imagePoints(from: landmarks.rightEye, in: face.boundingBox),
-      let leftEye = EyeLandmarks(points: resample(leftEyePoints, to: 6)),
-      let rightEye = EyeLandmarks(points: resample(rightEyePoints, to: 6))
+      let leftEye = try? eyeLandmarks(fromContour: leftEyePoints),
+      let rightEye = try? eyeLandmarks(fromContour: rightEyePoints)
     else { return nil }
 
     let leftPupil =
