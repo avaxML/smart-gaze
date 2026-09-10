@@ -32,6 +32,39 @@ import Testing
   #expect(events == ["x"])
 }
 
+private func sseEvents(_ input: String) -> [String] {
+  var carry = ""
+  return SSE.events(from: input, carry: &carry)
+}
+
+@Test func sseDataWithoutSpace() {
+  #expect(sseEvents("data:x\n\n") == ["x"])
+}
+
+@Test func sseDataWithOneSpace() {
+  #expect(sseEvents("data: x\n\n") == ["x"])
+}
+
+@Test func sseDataStripsAtMostOneSpace() {
+  #expect(sseEvents("data:  x\n\n") == [" x"])
+}
+
+@Test func sseBlankDataDispatchesEmptyEvent() {
+  #expect(sseEvents("data:\n\n") == [""])
+}
+
+@Test func sseCommentOnlyDispatchesNothing() {
+  #expect(sseEvents(": keep-alive\n\n") == [])
+}
+
+@Test func sseBareDataDispatchesEmptyEvent() {
+  #expect(sseEvents("data\n\n") == [""])
+}
+
+@Test func sseMultilineBlankDataLinePreserved() {
+  #expect(sseEvents("data:a\ndata:\ndata:b\n\n") == ["a\n\nb"])
+}
+
 @Test func geminiRequestBodyShape() throws {
   let jpeg = Data([0xFF, 0xD8])
   let body = try GeminiWire.requestBody(model: "m", system: "S", prompt: "P", imageJPEG: jpeg)

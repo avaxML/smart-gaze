@@ -711,4 +711,32 @@ struct ProviderTransportTests {
     #expect(image.width == 1)
     #expect(image.height == 1)
   }
+
+  @Test func chaosEmptyDataEventIsNotFatal() async throws {
+    let host = "chaos-emptydata.test"
+    FixtureRegistry.shared.register(
+      Fixture(chunks: [
+        sse("{\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}"),
+        Data("data: \n\n".utf8),
+        sse("{\"choices\":[{\"delta\":{\"content\":\"there\"}}]}"),
+      ]),
+      host: host
+    )
+    let provider = makeProvider(kind: .openai, host: host, path: "/v1")
+    let values = try await collect(provider)
+    #expect(values == ["hi", "there"])
+  }
+
+  @Test func chaosDataWithoutSpaceIsParsed() async throws {
+    let host = "chaos-nospace.test"
+    FixtureRegistry.shared.register(
+      Fixture(chunks: [
+        Data("data:{\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n".utf8)
+      ]),
+      host: host
+    )
+    let provider = makeProvider(kind: .openai, host: host, path: "/v1")
+    let values = try await collect(provider)
+    #expect(values == ["hi"])
+  }
 }

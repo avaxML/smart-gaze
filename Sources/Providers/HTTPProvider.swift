@@ -226,6 +226,7 @@ public final class HTTPProvider: LLMProvider, @unchecked Sendable {
       guard !text.isEmpty else { return false }
       for event in SSE.events(from: text, carry: &carry) {
         if wire.isTerminal(event) { return true }
+        if event.isEmpty { continue }
         guard Self.isJSON(event) else { throw ProviderError.malformedResponse }
         let delta = try wire.textDelta(fromEventData: event)
         if let delta, !delta.isEmpty {

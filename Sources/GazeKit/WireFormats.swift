@@ -10,8 +10,16 @@ public enum SSE {
     var events: [String] = []
     for piece in pieces {
       var dataLines: [String] = []
-      for line in piece.components(separatedBy: "\n") where line.hasPrefix("data: ") {
-        dataLines.append(String(line.dropFirst(6)))
+      for line in piece.components(separatedBy: "\n") {
+        if line.hasPrefix(":") { continue }
+        guard let colon = line.firstIndex(of: ":") else {
+          if line == "data" { dataLines.append("") }
+          continue
+        }
+        guard line[line.startIndex..<colon] == "data" else { continue }
+        var value = line[line.index(after: colon)...]
+        if value.hasPrefix(" ") { value = value.dropFirst() }
+        dataLines.append(String(value))
       }
       if !dataLines.isEmpty {
         events.append(dataLines.joined(separator: "\n"))
