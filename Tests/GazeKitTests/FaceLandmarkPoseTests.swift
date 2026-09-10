@@ -18,6 +18,20 @@ private func rotationAboutY(_ angle: Double) -> RotationMatrix {
   )
 }
 
+private func rotationAboutX(_ angle: Double) -> RotationMatrix {
+  let c = cos(angle)
+  let s = sin(angle)
+  return (
+    SIMD3<Double>(1, 0, 0),
+    SIMD3<Double>(0, c, -s),
+    SIMD3<Double>(0, s, c)
+  )
+}
+
+private func imageSpaceLandmarks(canonicalFrame points: [SIMD3<Double>]) -> [SIMD3<Double>] {
+  points.map { SIMD3<Double>($0.x, -$0.y, -$0.z) }
+}
+
 private func apply(_ rows: RotationMatrix, to vector: SIMD3<Double>) -> SIMD3<Double> {
   SIMD3<Double>(
     rows.0.x * vector.x + rows.0.y * vector.y + rows.0.z * vector.z,
@@ -37,7 +51,8 @@ private func difference(_ a: SIMD3<Double>, _ b: SIMD3<Double>) -> Double {
 private let imageSize = SIMD2<Double>(1920, 1080)
 
 @Test func identityLandmarksRecoverIdentityRotation() throws {
-  let result = try headPoseInputs(landmarks: CanonicalFaceModel.vertices, imageSize: imageSize)
+  let landmarks = imageSpaceLandmarks(canonicalFrame: CanonicalFaceModel.vertices)
+  let result = try headPoseInputs(landmarks: landmarks, imageSize: imageSize)
 
   #expect(abs(result.rotation.matrix.0.x - 1) <= tolerance)
   #expect(abs(result.rotation.matrix.0.y - 0) <= tolerance)
@@ -58,7 +73,8 @@ private let imageSize = SIMD2<Double>(1920, 1080)
 
 @Test func twentyDegreesAboutYIsRecovered() throws {
   let expected = rotationAboutY(20 * Double.pi / 180)
-  let observed = CanonicalFaceModel.vertices.map { apply(expected, to: $0) }
+  let canonicalFrameObserved = CanonicalFaceModel.vertices.map { apply(expected, to: $0) }
+  let observed = imageSpaceLandmarks(canonicalFrame: canonicalFrameObserved)
 
   let result = try headPoseInputs(landmarks: observed, imageSize: imageSize)
 
@@ -119,6 +135,37 @@ private let imageSize = SIMD2<Double>(1920, 1080)
     abs(Double(vectors.faceOriginCentimeters.z) - result.faceOrigin.centimetres.z)
       <= floatTolerance * abs(result.faceOrigin.centimetres.z)
   )
+}
+
+@Test func pitchInImageConventionIsRecovered() throws {
+  let expected = rotationAboutX(20 * Double.pi / 180)
+  let canonicalFrameObserved = CanonicalFaceModel.vertices.map { apply(expected, to: $0) }
+  let observed = imageSpaceLandmarks(canonicalFrame: canonicalFrameObserved)
+
+  let result = try headPoseInputs(landmarks: observed, imageSize: imageSize)
+
+  #expect(abs(result.rotation.matrix.0.x - expected.0.x) <= rotationTolerance)
+  #expect(abs(result.rotation.matrix.0.y - expected.0.y) <= rotationTolerance)
+  #expect(abs(result.rotation.matrix.0.z - expected.0.z) <= rotationTolerance)
+  #expect(abs(result.rotation.matrix.1.x - expected.1.x) <= rotationTolerance)
+  #expect(abs(result.rotation.matrix.1.y - expected.1.y) <= rotationTolerance)
+  #expect(abs(result.rotation.matrix.1.z - expected.1.z) <= rotationTolerance)
+  #expect(abs(result.rotation.matrix.2.x - expected.2.x) <= rotationTolerance)
+  #expect(abs(result.rotation.matrix.2.y - expected.2.y) <= rotationTolerance)
+  #expect(abs(result.rotation.matrix.2.z - expected.2.z) <= rotationTolerance)
+}
+
+@Test func headVectorVerticalComponentSignMatchesPitchDirection() throws {
+  func headVectorY(pitchDegrees degrees: Double) throws -> Double {
+    let rotation = rotationAboutX(degrees * Double.pi / 180)
+    let canonicalFrameObserved = CanonicalFaceModel.vertices.map { apply(rotation, to: $0) }
+    let observed = imageSpaceLandmarks(canonicalFrame: canonicalFrameObserved)
+    let result = try headPoseInputs(landmarks: observed, imageSize: imageSize)
+    return result.headVector.y
+  }
+
+  #expect(try headVectorY(pitchDegrees: 20) < 0)
+  #expect(try headVectorY(pitchDegrees: -20) > 0)
 }
 
 @Test func headVectorMatchesTheStoredRotation() throws {
