@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift build
+
+  test:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift test
+
+  lint:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - run: $(xcrun --find swift-format) lint --recursive --strict Sources Tests
+
+  package:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash Scripts/make-app.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SmartGaze-app
+          path: dist/SmartGaze.app
