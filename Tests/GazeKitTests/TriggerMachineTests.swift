@@ -180,3 +180,48 @@ private func fixation(at point: CGPoint, startingAt start: TimeInterval) -> Fixa
   #expect(machine.handle(.modifierUp(0.1)) == [])
   #expect(machine.state == .idle)
 }
+
+@Test func doubleBlinkAfterFaceLostFromIdleDoesNotCaptureStaleGaze() {
+  var machine = TriggerMachine(mode: .doubleBlink)
+
+  #expect(machine.handle(.gaze(CGPoint(x: 100, y: 100), 0.0)) == [])
+  #expect(machine.state == .idle)
+
+  #expect(machine.handle(.faceLost(1.0)) == [])
+  #expect(machine.handle(.blink(.doubleBlink, 2.0)) == [])
+  #expect(machine.state == .idle)
+}
+
+@Test func faceLostFromPristineIdleThenDoubleBlinkProducesNoCapture() {
+  var machine = TriggerMachine(mode: .doubleBlink)
+
+  #expect(machine.handle(.faceLost(0.0)) == [])
+  #expect(machine.handle(.blink(.doubleBlink, 1.0)) == [])
+  #expect(machine.state == .idle)
+}
+
+@Test func faceLostAfterFiringCooldownThenDoubleBlinkProducesNoCapture() {
+  var machine = TriggerMachine(mode: .doubleBlink, cooldown: 3.0)
+
+  #expect(machine.handle(.gaze(CGPoint(x: 7, y: 7), 0.0)) == [])
+  #expect(machine.handle(.blink(.doubleBlink, 0.1)) == [.capture(at: CGPoint(x: 7, y: 7))])
+  #expect(machine.state == .firing(region: CGPoint(x: 7, y: 7)))
+
+  #expect(machine.handle(.faceLost(1.0)) == [.hideReticle])
+  #expect(machine.state == .idle)
+
+  #expect(machine.handle(.blink(.doubleBlink, 5.0)) == [])
+  #expect(machine.state == .idle)
+}
+
+@Test func freshGazeAfterFaceLostAllowsLaterDoubleBlinkCapture() {
+  var machine = TriggerMachine(mode: .doubleBlink, cooldown: 3.0)
+
+  #expect(machine.handle(.gaze(CGPoint(x: 100, y: 100), 0.0)) == [])
+  #expect(machine.handle(.faceLost(1.0)) == [])
+  #expect(machine.handle(.blink(.doubleBlink, 2.0)) == [])
+
+  #expect(machine.handle(.gaze(CGPoint(x: 50, y: 60), 2.1)) == [])
+  #expect(machine.handle(.blink(.doubleBlink, 2.2)) == [.capture(at: CGPoint(x: 50, y: 60))])
+  #expect(machine.state == .firing(region: CGPoint(x: 50, y: 60)))
+}
