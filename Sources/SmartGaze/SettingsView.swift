@@ -36,7 +36,7 @@ struct SettingsView: View {
           .tag(Tab.privacy)
       }
     }
-    .frame(minWidth: 760, minHeight: 620)
+    .frame(minWidth: 760, minHeight: 400)
     .onChange(of: selectedTab) { _, tab in
       if tab == .preview {
         preview.prepareForPresentation(from: model)
@@ -79,7 +79,7 @@ private struct GeneralSettingsView: View {
           step: 0.1, unit: "s", fractionDigits: 1)
         boundedRow(
           "Dispersion threshold", value: model.dispersionThresholdBinding(),
-          range: SettingsRange.dispersionThreshold, step: 5, unit: "px", fractionDigits: 0)
+          range: SettingsRange.dispersionThreshold, step: 5, unit: "pt", fractionDigits: 0)
       } header: {
         Text("Dwell")
       } footer: {
