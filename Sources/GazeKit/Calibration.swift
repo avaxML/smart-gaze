@@ -1,34 +1,78 @@
 import CoreGraphics
 import Foundation
 
-public struct GazeAngles: Equatable, Sendable, Codable {
-  public let yaw: Double
-  public let pitch: Double
+public struct NormalizedGazePoint: Equatable, Sendable, Codable {
+  public let x: Double
+  public let y: Double
 
-  public init(yaw: Double, pitch: Double) {
-    self.yaw = yaw
-    self.pitch = pitch
+  public init(x: Double, y: Double) {
+    self.x = x
+    self.y = y
   }
 }
 
 public struct CalibrationSample: Equatable, Sendable {
-  public let angles: GazeAngles
+  public let gaze: NormalizedGazePoint
   public let screenPoint: CGPoint
 
-  public init(angles: GazeAngles, screenPoint: CGPoint) {
-    self.angles = angles
+  public init(gaze: NormalizedGazePoint, screenPoint: CGPoint) {
+    self.gaze = gaze
     self.screenPoint = screenPoint
   }
 }
 
 public struct CalibrationMap: Equatable, Sendable, Codable {
+  public static let inputSpaceMarker = "normalized-screen-point-v1"
+
   public let xCoefficients: [Double]
   public let yCoefficients: [Double]
 
-  public func project(_ angles: GazeAngles) -> CGPoint {
-    let x = dot(xCoefficients, xBasis(angles))
-    let y = dot(yCoefficients, yBasis(angles))
+  init(xCoefficients: [Double], yCoefficients: [Double]) {
+    self.xCoefficients = xCoefficients
+    self.yCoefficients = yCoefficients
+  }
+
+  public func project(_ gaze: NormalizedGazePoint) -> CGPoint {
+    let x = dot(xCoefficients, xBasis(gaze))
+    let y = dot(yCoefficients, yBasis(gaze))
     return CGPoint(x: x, y: y)
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case inputSpace
+    case xCoefficients
+    case yCoefficients
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    let inputSpace = try container.decode(String.self, forKey: .inputSpace)
+    guard inputSpace == Self.inputSpaceMarker else {
+      throw DecodingError.dataCorruptedError(
+        forKey: .inputSpace, in: container,
+        debugDescription: "Unsupported calibration input space")
+    }
+
+    let xCoefficients = try container.decode([Double].self, forKey: .xCoefficients)
+    let yCoefficients = try container.decode([Double].self, forKey: .yCoefficients)
+    guard xCoefficients.count == 6, yCoefficients.count == 6,
+      xCoefficients.allSatisfy({ $0.isFinite }),
+      yCoefficients.allSatisfy({ $0.isFinite })
+    else {
+      throw DecodingError.dataCorruptedError(
+        forKey: .xCoefficients, in: container,
+        debugDescription: "Calibration needs six finite coefficients per axis")
+    }
+
+    self.xCoefficients = xCoefficients
+    self.yCoefficients = yCoefficients
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(Self.inputSpaceMarker, forKey: .inputSpace)
+    try container.encode(xCoefficients, forKey: .xCoefficients)
+    try container.encode(yCoefficients, forKey: .yCoefficients)
   }
 }
 
@@ -47,16 +91,16 @@ public func solveCalibration(_ samples: [CalibrationSample]) throws -> Calibrati
   return CalibrationMap(xCoefficients: xCoefficients, yCoefficients: yCoefficients)
 }
 
-private func xBasis(_ angles: GazeAngles) -> [Double] {
-  let yaw = angles.yaw
-  let pitch = angles.pitch
-  return [1, yaw, pitch, yaw * yaw, yaw * pitch, pitch * pitch]
+private func xBasis(_ gaze: NormalizedGazePoint) -> [Double] {
+  let x = gaze.x
+  let y = gaze.y
+  return [1, x, y, x * x, x * y, y * y]
 }
 
-private func yBasis(_ angles: GazeAngles) -> [Double] {
-  let yaw = angles.yaw
-  let pitch = angles.pitch
-  return [1, pitch, yaw, pitch * pitch, pitch * yaw, yaw * yaw]
+private func yBasis(_ gaze: NormalizedGazePoint) -> [Double] {
+  let x = gaze.x
+  let y = gaze.y
+  return [1, y, x, y * y, y * x, x * x]
 }
 
 private func dot(_ coefficients: [Double], _ row: [Double]) -> Double {
@@ -69,7 +113,7 @@ private func dot(_ coefficients: [Double], _ row: [Double]) -> Double {
 
 private func solveAxis(
   _ samples: [CalibrationSample],
-  basis: (GazeAngles) -> [Double],
+  basis: (NormalizedGazePoint) -> [Double],
   value: (CalibrationSample) -> Double
 ) throws -> [Double] {
   let count = 6
@@ -77,7 +121,7 @@ private func solveAxis(
   var rhs = [Double](repeating: 0, count: count)
 
   for sample in samples {
-    let row = basis(sample.angles)
+    let row = basis(sample.gaze)
     let target = value(sample)
     for i in 0..<count {
       rhs[i] += row[i] * target

@@ -39,6 +39,32 @@ public struct Settings: Codable, Equatable, Sendable {
   public var providers: [ProviderKind: ProviderSettings]
   public var calibrationMap: CalibrationMap?
 
+  private enum CodingKeys: String, CodingKey {
+    case dwellSeconds
+    case dispersionThreshold
+    case activationMode
+    case modifierKey
+    case bubbleWidth
+    case bubbleMaxHeight
+    case activeProvider
+    case providers
+    case calibrationMap
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    dwellSeconds = try container.decode(TimeInterval.self, forKey: .dwellSeconds)
+    dispersionThreshold = try container.decode(Double.self, forKey: .dispersionThreshold)
+    activationMode = try container.decode(ActivationMode.self, forKey: .activationMode)
+    modifierKey = try container.decode(ModifierKey.self, forKey: .modifierKey)
+    bubbleWidth = try container.decode(Double.self, forKey: .bubbleWidth)
+    bubbleMaxHeight = try container.decode(Double.self, forKey: .bubbleMaxHeight)
+    activeProvider = try container.decode(ProviderKind.self, forKey: .activeProvider)
+    providers = try container.decode([ProviderKind: ProviderSettings].self, forKey: .providers)
+    // A legacy or corrupted calibration must drop only itself, never the user's other saved settings.
+    calibrationMap = try? container.decode(CalibrationMap.self, forKey: .calibrationMap)
+  }
+
   public init(
     dwellSeconds: TimeInterval,
     dispersionThreshold: Double,
