@@ -1,0 +1,10 @@
+.DS_Store
+.build/
+.swiftpm/
+DerivedData/
+*.xcodeproj
+*.xcworkspace
+dist/
+*.mlpackage/
+*.mlmodelc/
+.local-config/
