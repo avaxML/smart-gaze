@@ -37,6 +37,7 @@ public struct Settings: Codable, Equatable, Sendable {
   public var bubbleMaxHeight: Double
   public var activeProvider: ProviderKind
   public var providers: [ProviderKind: ProviderSettings]
+  public var deniedApps: AppDenylist
   public var calibrationMap: CalibrationMap?
 
   private enum CodingKeys: String, CodingKey {
@@ -48,6 +49,7 @@ public struct Settings: Codable, Equatable, Sendable {
     case bubbleMaxHeight
     case activeProvider
     case providers
+    case deniedApps
     case calibrationMap
   }
 
@@ -61,6 +63,8 @@ public struct Settings: Codable, Equatable, Sendable {
     bubbleMaxHeight = try container.decode(Double.self, forKey: .bubbleMaxHeight)
     activeProvider = try container.decode(ProviderKind.self, forKey: .activeProvider)
     providers = try container.decode([ProviderKind: ProviderSettings].self, forKey: .providers)
+    // Settings written before the denylist existed keep the seeded defaults.
+    deniedApps = (try? container.decode(AppDenylist.self, forKey: .deniedApps)) ?? AppDenylist()
     // A legacy or corrupted calibration must drop only itself, never the user's other saved settings.
     calibrationMap = try? container.decode(CalibrationMap.self, forKey: .calibrationMap)
   }
@@ -74,6 +78,7 @@ public struct Settings: Codable, Equatable, Sendable {
     bubbleMaxHeight: Double,
     activeProvider: ProviderKind,
     providers: [ProviderKind: ProviderSettings],
+    deniedApps: AppDenylist = AppDenylist(),
     calibrationMap: CalibrationMap? = nil
   ) {
     self.dwellSeconds = dwellSeconds
@@ -84,6 +89,7 @@ public struct Settings: Codable, Equatable, Sendable {
     self.bubbleMaxHeight = bubbleMaxHeight
     self.activeProvider = activeProvider
     self.providers = providers
+    self.deniedApps = deniedApps
     self.calibrationMap = calibrationMap
   }
 
@@ -123,4 +129,39 @@ public struct Settings: Codable, Equatable, Sendable {
       ),
     ]
   )
+
+  public func clamped() -> Settings {
+    var copy = self
+    copy.dwellSeconds = SettingsRange.clampFinite(
+      dwellSeconds, to: SettingsRange.dwellSeconds, fallback: Settings.default.dwellSeconds)
+    copy.dispersionThreshold = SettingsRange.clampFinite(
+      dispersionThreshold, to: SettingsRange.dispersionThreshold,
+      fallback: Settings.default.dispersionThreshold)
+    copy.bubbleWidth = SettingsRange.clampFinite(
+      bubbleWidth, to: SettingsRange.bubbleWidth, fallback: Settings.default.bubbleWidth)
+    copy.bubbleMaxHeight = SettingsRange.clampFinite(
+      bubbleMaxHeight, to: SettingsRange.bubbleMaxHeight,
+      fallback: Settings.default.bubbleMaxHeight)
+    return copy
+  }
+}
+
+public enum SettingsRange {
+  public static let dwellSeconds: ClosedRange<TimeInterval> = 0.2...5.0
+  public static let dispersionThreshold: ClosedRange<Double> = 10...600
+  public static let bubbleWidth: ClosedRange<Double> = 220...900
+  public static let bubbleMaxHeight: ClosedRange<Double> = 160...1200
+
+  public static func clamp<T: Comparable>(_ value: T, to range: ClosedRange<T>) -> T {
+    min(max(value, range.lowerBound), range.upperBound)
+  }
+
+  /// Clamps a measurement, replacing NaN and infinities with a finite fallback
+  /// so corrupt persisted values can never escape into the UI.
+  public static func clampFinite(
+    _ value: Double, to range: ClosedRange<Double>, fallback: Double
+  ) -> Double {
+    let finite = value.isFinite ? value : fallback
+    return min(max(finite, range.lowerBound), range.upperBound)
+  }
 }

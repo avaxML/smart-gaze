@@ -59,6 +59,19 @@ private func uniqueTestService() -> String {
   #expect(try store.read(account: "missing") == nil)
 }
 
+@Test func containsReportsPresenceWithoutReturningTheSecret() throws {
+  let store = KeychainStore(service: uniqueTestService())
+  defer { try? store.delete(account: "api-key") }
+
+  #expect(try store.contains(account: "api-key") == false)
+
+  try store.write("test-secret-one", account: "api-key")
+  #expect(try store.contains(account: "api-key") == true)
+
+  try store.delete(account: "api-key")
+  #expect(try store.contains(account: "api-key") == false)
+}
+
 @Test func accountsAreIsolatedWithinAService() throws {
   let store = KeychainStore(service: uniqueTestService())
   defer {

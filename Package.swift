@@ -62,5 +62,10 @@ let package = Package(
       dependencies: ["OverlayUI"],
       swiftSettings: strictConcurrency
     ),
+    .testTarget(
+      name: "SmartGazeTests",
+      dependencies: ["SmartGaze", "GazeKit", "Perception", "Providers"],
+      swiftSettings: strictConcurrency
+    ),
   ]
 )
