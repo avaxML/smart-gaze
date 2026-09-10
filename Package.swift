@@ -42,5 +42,25 @@ let package = Package(
       dependencies: ["GazeKit"],
       swiftSettings: strictConcurrency
     ),
+    .testTarget(
+      name: "PerceptionTests",
+      dependencies: ["Perception"],
+      swiftSettings: strictConcurrency
+    ),
+    .testTarget(
+      name: "ScreenCaptureTests",
+      dependencies: ["ScreenCapture"],
+      swiftSettings: strictConcurrency
+    ),
+    .testTarget(
+      name: "ProvidersTests",
+      dependencies: ["Providers"],
+      swiftSettings: strictConcurrency
+    ),
+    .testTarget(
+      name: "OverlayUITests",
+      dependencies: ["OverlayUI"],
+      swiftSettings: strictConcurrency
+    ),
   ]
 )
