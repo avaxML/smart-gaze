@@ -5,7 +5,11 @@ import Testing
 @testable import Perception
 
 private func requireModelURL() throws -> URL {
-  guard ProcessInfo.processInfo.environment["SMART_GAZE_FACE_MESH_TESTS"] == "1" else {
+  guard faceMeshTestsEnabled(ProcessInfo.processInfo.environment) else {
+    FileHandle.standardError.write(
+      Data(
+        "MODEL TEST SKIPPED: FaceMesh contract tests did not run. Set SMART_GAZE_FACE_MESH_TESTS=1 and SMART_GAZE_FACE_MESH_MODEL_PATH.\n"
+          .utf8))
     try Test.cancel(
       "set SMART_GAZE_FACE_MESH_TESTS=1 and SMART_GAZE_FACE_MESH_MODEL_PATH to run face-mesh integration tests"
     )
