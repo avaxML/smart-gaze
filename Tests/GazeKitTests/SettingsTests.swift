@@ -35,6 +35,68 @@ private func loadSettings(withStoredCalibration calibration: [String: Any]) thro
   return store.load()
 }
 
+@Test func defaultSettingsEncodeToTheAgreedLiterals() throws {
+  let data = try JSONEncoder().encode(Settings.default)
+  let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+  #expect(object["dwellSeconds"] as? Double == 0.6)
+  #expect(object["dispersionThreshold"] as? Double == 160)
+  #expect(object["activationMode"] as? String == "modifierHeld")
+  #expect(object["modifierKey"] as? String == "option")
+  #expect(object["bubbleWidth"] as? Double == 360)
+  #expect(object["bubbleMaxHeight"] as? Double == 480)
+  #expect(object["activeProvider"] as? String == "opencode")
+
+  let denied = try #require(object["deniedApps"] as? [String])
+  #expect(Set(denied) == AppDenylist().bundleIDs)
+  #expect(denied.contains("com.apple.mobilesms"))
+  #expect(denied == denied.sorted())
+}
+
+@Test func oldSettingsWithoutDeniedAppsFallBackToSeedDenylist() throws {
+  let data = try JSONEncoder().encode(Settings.default)
+  var object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+  object.removeValue(forKey: "deniedApps")
+  let stripped = try JSONSerialization.data(withJSONObject: object)
+
+  let decoded = try JSONDecoder().decode(Settings.self, from: stripped)
+  #expect(decoded.deniedApps == AppDenylist())
+  #expect(decoded.deniedApps.allowsCapture(frontmostBundleID: "com.1password.1password") == false)
+  #expect(decoded.dwellSeconds == 0.6)
+  #expect(decoded.activationMode == .modifierHeld)
+  #expect(decoded.dispersionThreshold == 160)
+}
+
+@Test func settingsRoundTripACustomDenylist() throws {
+  var settings = Settings.default
+  settings.deniedApps = AppDenylist(bundleIDs: ["com.example.Secret", "com.example.notes"])
+
+  let data = try JSONEncoder().encode(settings)
+  let decoded = try JSONDecoder().decode(Settings.self, from: data)
+
+  #expect(decoded.deniedApps == settings.deniedApps)
+  #expect(decoded.deniedApps.allowsCapture(frontmostBundleID: "com.example.secret") == false)
+  #expect(decoded.deniedApps.allowsCapture(frontmostBundleID: "com.example.notes") == false)
+}
+
+@Test func outOfRangeSettingsClampToTheAdvertisedBounds() {
+  var settings = Settings.default
+  settings.dwellSeconds = 99
+  settings.dispersionThreshold = 1
+  settings.bubbleWidth = 10
+  settings.bubbleMaxHeight = 99999
+
+  let clamped = settings.clamped()
+  #expect(clamped.dwellSeconds == 5.0)
+  #expect(clamped.dispersionThreshold == 10)
+  #expect(clamped.bubbleWidth == 220)
+  #expect(clamped.bubbleMaxHeight == 1200)
+}
+
+@Test func inRangeSettingsAreUnchangedByClamping() {
+  #expect(Settings.default.clamped() == Settings.default)
+}
+
 @Test func settingsRoundTripsThroughJSONLosslessly() throws {
   let original = try fullyPopulatedSettings()
   let data = try JSONEncoder().encode(original)

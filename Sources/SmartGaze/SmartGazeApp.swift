@@ -1,19 +1,15 @@
-import GazeKit
-import OverlayUI
-import Perception
-import Providers
-import ScreenCapture
+import AppKit
 
 @main
-struct SmartGazeApp {
+enum SmartGazeApp {
+  @MainActor
   static func main() {
-    let modules = [
-      GazeKit.moduleName,
-      Perception.moduleName,
-      ScreenCapture.moduleName,
-      Providers.moduleName,
-      OverlayUI.moduleName,
-    ]
-    print("smart-gaze linked modules: \(modules.joined(separator: ", "))")
+    let app = NSApplication.shared
+    let delegate = AppDelegate()
+    app.delegate = delegate
+    app.setActivationPolicy(.accessory)
+    withExtendedLifetime(delegate) {
+      app.run()
+    }
   }
 }

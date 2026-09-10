@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 import Testing
 
 @testable import GazeKit
@@ -91,4 +92,48 @@ private let requestSize = CGSize(width: 600, height: 400)
   let denylist = AppDenylist(bundleIDs: ["com.example.secret"])
   #expect(denylist.allowsCapture(frontmostBundleID: "com.1password.1password") == true)
   #expect(denylist.allowsCapture(frontmostBundleID: "com.example.secret") == false)
+}
+
+@Test func addingBundleIDNormalizesCaseAndTrimsWhitespace() {
+  var denylist = AppDenylist(bundleIDs: [])
+  denylist.add("  COM.Example.Secret  ")
+
+  #expect(denylist.bundleIDs == ["com.example.secret"])
+  #expect(denylist.allowsCapture(frontmostBundleID: "com.example.secret") == false)
+  #expect(denylist.allowsCapture(frontmostBundleID: "COM.EXAMPLE.SECRET") == false)
+}
+
+@Test func addingTheSameBundleIDCaseInsensitivelyDoesNotDuplicate() {
+  var denylist = AppDenylist(bundleIDs: [])
+  denylist.add("com.example.secret")
+  denylist.add("COM.EXAMPLE.SECRET")
+  denylist.add(" com.example.secret ")
+
+  #expect(denylist.bundleIDs.count == 1)
+}
+
+@Test func addingWhitespaceOnlyBundleIDIsIgnored() {
+  var denylist = AppDenylist(bundleIDs: [])
+  denylist.add("   ")
+  denylist.add("")
+
+  #expect(denylist.bundleIDs.isEmpty)
+}
+
+@Test func removingBundleIDIsCaseInsensitive() {
+  var denylist = AppDenylist(bundleIDs: ["com.example.secret"])
+  denylist.remove("COM.EXAMPLE.SECRET")
+
+  #expect(denylist.allowsCapture(frontmostBundleID: "com.example.secret") == true)
+}
+
+@Test func denylistJSONRoundTripsNormalizedAndSorted() throws {
+  let denylist = AppDenylist(bundleIDs: ["com.b.app", "com.a.app", "COM.C.APP"])
+  let data = try JSONEncoder().encode(denylist)
+
+  #expect(String(decoding: data, as: UTF8.self) == "[\"com.a.app\",\"com.b.app\",\"com.c.app\"]")
+
+  let decoded = try JSONDecoder().decode(AppDenylist.self, from: data)
+  #expect(decoded == denylist)
+  #expect(decoded.bundleIDs == ["com.a.app", "com.b.app", "com.c.app"])
 }

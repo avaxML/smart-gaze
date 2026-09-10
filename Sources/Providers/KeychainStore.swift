@@ -7,16 +7,29 @@ public protocol SecretStore: Sendable {
   func delete(account: String) throws
 }
 
+public protocol SecretPresence: Sendable {
+  func contains(account: String) throws -> Bool
+}
+
 public enum KeychainError: Error, Equatable {
   case unexpectedStatus(OSStatus)
   case unreadableData
 }
 
-public struct KeychainStore: SecretStore, Sendable {
+public struct KeychainStore: SecretStore, SecretPresence, Sendable {
   private let service: String
 
   public init(service: String = "com.avaxml.smartgaze") {
     self.service = service
+  }
+
+  public func contains(account: String) throws -> Bool {
+    var query = baseQuery(account: account)
+    query[kSecMatchLimit as String] = kSecMatchLimitOne
+    let status = SecItemCopyMatching(query as CFDictionary, nil)
+    if status == errSecItemNotFound { return false }
+    guard status == errSecSuccess else { throw KeychainError.unexpectedStatus(status) }
+    return true
   }
 
   public func read(account: String) throws -> String? {

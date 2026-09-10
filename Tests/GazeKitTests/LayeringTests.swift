@@ -141,7 +141,7 @@ private func runSwiftPackageDump(packagePath: URL, scratchPath: URL) throws -> C
   let actualNames = Set(dumped.targets.map(\.name))
   let expectedNames: Set<String> = [
     "GazeKit", "Perception", "ScreenCapture", "Providers", "OverlayUI", "SmartGaze", "GazeKitTests",
-    "PerceptionTests", "ScreenCaptureTests", "ProvidersTests", "OverlayUITests",
+    "PerceptionTests", "ScreenCaptureTests", "ProvidersTests", "OverlayUITests", "SmartGazeTests",
   ]
   #expect(
     actualNames == expectedNames,
@@ -171,6 +171,10 @@ private func runSwiftPackageDump(packagePath: URL, scratchPath: URL) throws -> C
     Edge(from: "ScreenCaptureTests", to: "ScreenCapture"),
     Edge(from: "ProvidersTests", to: "Providers"),
     Edge(from: "OverlayUITests", to: "OverlayUI"),
+    Edge(from: "SmartGazeTests", to: "SmartGaze"),
+    Edge(from: "SmartGazeTests", to: "GazeKit"),
+    Edge(from: "SmartGazeTests", to: "Perception"),
+    Edge(from: "SmartGazeTests", to: "Providers"),
   ]
 
   let unexpected = actualEdges.subtracting(expectedEdges).sorted()

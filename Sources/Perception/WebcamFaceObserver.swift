@@ -21,7 +21,7 @@ public final class WebcamFaceObserver: NSObject, FaceObserving, @unchecked Senda
 
   public override init() {
     var streamContinuation: AsyncStream<FaceObservation?>.Continuation!
-    self.faces = AsyncStream { streamContinuation = $0 }
+    self.faces = AsyncStream(bufferingPolicy: .bufferingNewest(1)) { streamContinuation = $0 }
     self.continuation = streamContinuation
 
     let request = VNDetectFaceLandmarksRequest()
