@@ -204,7 +204,9 @@ public final class HTTPProvider: LLMProvider, @unchecked Sendable {
     system: String,
     yield: @escaping @Sendable (String) -> Void
   ) async throws {
+    try Task.checkCancellation()
     let key = try resolvedKey()
+    try Task.checkCancellation()
     let request = try makeRequest(key: key, imageJPEG: imageJPEG, prompt: prompt, system: system)
     let (bytes, response) = try await session.bytes(for: request)
     let networkTask = bytes.task
