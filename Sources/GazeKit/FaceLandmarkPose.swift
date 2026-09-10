@@ -32,7 +32,9 @@ public func headPoseInputs(
   }
 
   let canonicalPoints = CanonicalFaceModel.rigidIndices.map { CanonicalFaceModel.vertices[$0] }
-  let observedPoints = CanonicalFaceModel.rigidIndices.map { landmarks[$0] }
+  let observedPoints = CanonicalFaceModel.rigidIndices.map {
+    imageLandmarkToCanonicalFrame(landmarks[$0])
+  }
 
   let rotation = try kabschRotation(canonical: canonicalPoints, observed: observedPoints)
   let head = headVector(from: rotation)
@@ -61,6 +63,21 @@ extension HeadPoseInputs {
       )
     )
   }
+}
+
+/// Converts a landmark from image space, where x and y are pixel coordinates with y
+/// increasing downward, into `CanonicalFaceModel`'s frame, where y increases upward.
+///
+/// Negates both y and z rather than y alone. A single-axis negation is a reflection
+/// with determinant -1, a transform no proper rotation can represent, so `kabschRotation`
+/// would silently fit it with a nonsense quaternion. Negating y and z together is a
+/// proper 180 degree rotation about x.
+///
+/// Open question: this assumes the landmark mesh's z increases away from the viewer, to
+/// match the canonical model's depth axis. That has not been confirmed against a live
+/// face and should be treated as unverified until it is.
+private func imageLandmarkToCanonicalFrame(_ landmark: SIMD3<Double>) -> SIMD3<Double> {
+  SIMD3<Double>(landmark.x, -landmark.y, -landmark.z)
 }
 
 private func eyeCorners(
