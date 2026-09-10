@@ -22,6 +22,33 @@ Status: early construction. Nothing here works yet.
 swift build
 ```
 
+## Architecture
+
+Six targets, layered inward. `GazeKit` is the pure core and depends on nothing.
+
+- `GazeKit` holds the domain types and pure logic. No AppKit, no SwiftUI, no capture.
+- `Perception` will own gaze estimation from camera frames.
+- `ScreenCapture` will own grabbing the region you looked at.
+- `Providers` will own talking to the vision model you configure.
+- `OverlayUI` will own the floating bubble.
+- `SmartGaze` is the executable that wires the four outer targets together.
+
+The dependency rule runs one way. Every outer target depends on `GazeKit` and on
+nothing else in this package, and `SmartGaze` depends on all five. Outer targets
+never depend on each other, so a change to the overlay cannot ripple into capture.
+`Tests/GazeKitTests/LayeringTests.swift` reads the real dependency graph out of
+`swift package dump-package` and fails if any edge is added or removed.
+
+## Build And Package
+
+```
+swift build
+swift test
+bash Scripts/make-app.sh
+```
+
+`make-app.sh` produces an ad-hoc signed `dist/SmartGaze.app`. `dist/` is gitignored.
+
 ## Licence
 
 MIT. See `LICENSE`.
