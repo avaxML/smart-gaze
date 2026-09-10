@@ -30,9 +30,24 @@ public enum SSE {
 }
 
 public protocol WireFormat {
-  static func requestBody(model: String, system: String, prompt: String, imageJPEG: Data) throws
-    -> Data
+  static func requestBody(
+    model: String, system: String, prompt: String, imageJPEG: Data, maxOutputTokens: Int
+  ) throws -> Data
   static func textDelta(fromEventData: String) throws -> String?
+}
+
+extension WireFormat {
+  public static func requestBody(model: String, system: String, prompt: String, imageJPEG: Data)
+    throws -> Data
+  {
+    try requestBody(
+      model: model,
+      system: system,
+      prompt: prompt,
+      imageJPEG: imageJPEG,
+      maxOutputTokens: 1024
+    )
+  }
 }
 
 public enum WireError: Error, Equatable {
@@ -86,15 +101,20 @@ private struct GeminiSystemInstruction: Encodable {
   let parts: [GeminiTextPart]
 }
 
+private struct GeminiGenerationConfig: Encodable {
+  let maxOutputTokens: Int
+}
+
 private struct GeminiRequest: Encodable {
   let systemInstruction: GeminiSystemInstruction
   let contents: [GeminiContent]
+  let generationConfig: GeminiGenerationConfig
 }
 
 public enum GeminiWire: WireFormat {
-  public static func requestBody(model: String, system: String, prompt: String, imageJPEG: Data)
-    throws -> Data
-  {
+  public static func requestBody(
+    model: String, system: String, prompt: String, imageJPEG: Data, maxOutputTokens: Int
+  ) throws -> Data {
     let request = GeminiRequest(
       systemInstruction: GeminiSystemInstruction(parts: [GeminiTextPart(text: system)]),
       contents: [
@@ -111,7 +131,8 @@ public enum GeminiWire: WireFormat {
             ),
           ]
         )
-      ]
+      ],
+      generationConfig: GeminiGenerationConfig(maxOutputTokens: maxOutputTokens)
     )
     return try JSONEncoder().encode(request)
   }
@@ -168,16 +189,25 @@ private struct OpenAIMessage: Encodable {
 private struct OpenAIRequest: Encodable {
   let model: String
   let stream: Bool
+  let maxTokens: Int
   let messages: [OpenAIMessage]
+
+  enum CodingKeys: String, CodingKey {
+    case model
+    case stream
+    case maxTokens = "max_tokens"
+    case messages
+  }
 }
 
 public enum OpenAIWire: WireFormat {
-  public static func requestBody(model: String, system: String, prompt: String, imageJPEG: Data)
-    throws -> Data
-  {
+  public static func requestBody(
+    model: String, system: String, prompt: String, imageJPEG: Data, maxOutputTokens: Int
+  ) throws -> Data {
     let request = OpenAIRequest(
       model: model,
       stream: true,
+      maxTokens: maxOutputTokens,
       messages: [
         OpenAIMessage(role: "system", content: .text(system)),
         OpenAIMessage(
@@ -248,13 +278,13 @@ private struct AnthropicRequest: Encodable {
 }
 
 public enum AnthropicWire: WireFormat {
-  public static func requestBody(model: String, system: String, prompt: String, imageJPEG: Data)
-    throws -> Data
-  {
+  public static func requestBody(
+    model: String, system: String, prompt: String, imageJPEG: Data, maxOutputTokens: Int
+  ) throws -> Data {
     let request = AnthropicRequest(
       model: model,
       stream: true,
-      maxTokens: 1024,
+      maxTokens: maxOutputTokens,
       system: system,
       messages: [
         AnthropicMessage(

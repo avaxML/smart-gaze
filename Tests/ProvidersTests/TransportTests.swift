@@ -185,7 +185,8 @@ private func makeProvider(
   host: String,
   path: String,
   model: String = "m",
-  key: String? = "test-secret"
+  key: String? = "test-secret",
+  maximumOutputTokens: Int = 1024
 ) -> HTTPProvider {
   let settings = ProviderSettings(
     model: model,
@@ -196,8 +197,24 @@ private func makeProvider(
     kind: kind,
     settings: settings,
     secrets: FakeSecrets(value: key),
-    session: fixtureSession()
+    session: fixtureSession(),
+    maximumOutputTokens: maximumOutputTokens
   )
+}
+
+private func requestBodyData(of request: URLRequest) -> Data? {
+  if let body = request.httpBody { return body }
+  guard let stream = request.httpBodyStream else { return nil }
+  stream.open()
+  defer { stream.close() }
+  var data = Data()
+  var buffer = [UInt8](repeating: 0, count: 4096)
+  while stream.hasBytesAvailable {
+    let read = stream.read(&buffer, maxLength: buffer.count)
+    if read <= 0 { break }
+    data.append(buffer, count: read)
+  }
+  return data
 }
 
 private func sse(_ json: String) -> Data { Data(("data: " + json + "\n\n").utf8) }
@@ -367,6 +384,88 @@ struct ProviderTransportTests {
     let request = try #require(FixtureRegistry.shared.fixture(for: host)?.capturedRequest)
     #expect(request.url?.absoluteString == "https://\(host)/v1/chat/completions")
     #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer test-secret")
+  }
+
+  @Test func googleRequestCarriesConfiguredOutputCap() async throws {
+    let host = "cap-google.test"
+    FixtureRegistry.shared.register(
+      Fixture(chunks: [sse("{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"ok\"}]}}]}")]),
+      host: host
+    )
+    let provider = makeProvider(
+      kind: .google, host: host, path: "/v1beta", model: "gemini-3.5-flash-lite",
+      maximumOutputTokens: 512)
+    _ = try await collect(provider)
+
+    let request = try #require(FixtureRegistry.shared.fixture(for: host)?.capturedRequest)
+    let body = try #require(requestBodyData(of: request))
+    let json = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+    let config = try #require(json["generationConfig"] as? [String: Any])
+    #expect(config["maxOutputTokens"] as? Int == 512)
+  }
+
+  @Test func openAIRequestCarriesConfiguredOutputCap() async throws {
+    let host = "cap-openai.test"
+    FixtureRegistry.shared.register(
+      Fixture(chunks: [sse("{\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}")]),
+      host: host
+    )
+    let provider = makeProvider(kind: .openai, host: host, path: "/v1", maximumOutputTokens: 512)
+    _ = try await collect(provider)
+
+    let request = try #require(FixtureRegistry.shared.fixture(for: host)?.capturedRequest)
+    let body = try #require(requestBodyData(of: request))
+    let json = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+    #expect(json["max_tokens"] as? Int == 512)
+  }
+
+  @Test func anthropicRequestCarriesConfiguredOutputCap() async throws {
+    let host = "cap-anthropic.test"
+    FixtureRegistry.shared.register(
+      Fixture(chunks: [sse("{\"type\":\"content_block_delta\",\"delta\":{\"text\":\"ok\"}}")]),
+      host: host
+    )
+    let provider = makeProvider(
+      kind: .anthropic, host: host, path: "/v1", maximumOutputTokens: 512)
+    _ = try await collect(provider)
+
+    let request = try #require(FixtureRegistry.shared.fixture(for: host)?.capturedRequest)
+    let body = try #require(requestBodyData(of: request))
+    let json = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+    #expect(json["max_tokens"] as? Int == 512)
+  }
+
+  @Test func providerDefaultsOutputCapTo1024() async throws {
+    let host = "cap-default.test"
+    FixtureRegistry.shared.register(
+      Fixture(chunks: [sse("{\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}")]),
+      host: host
+    )
+    let provider = makeProvider(kind: .openai, host: host, path: "/v1")
+    _ = try await collect(provider)
+
+    let request = try #require(FixtureRegistry.shared.fixture(for: host)?.capturedRequest)
+    let body = try #require(requestBodyData(of: request))
+    let json = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+    #expect(json["max_tokens"] as? Int == 1024)
+  }
+
+  @Test func nonPositiveOutputCapIsRejectedBeforeSending() async throws {
+    let host = "cap-invalid.test"
+    FixtureRegistry.shared.register(
+      Fixture(chunks: [sse("{\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}")]),
+      host: host
+    )
+    let provider = makeProvider(
+      kind: .openai, host: host, path: "/v1", maximumOutputTokens: 0)
+
+    do {
+      _ = try await collect(provider)
+      Issue.record("expected an invalid configuration error")
+    } catch let error as ProviderError {
+      #expect(error == .invalidConfiguration)
+    }
+    #expect(FixtureRegistry.shared.fixture(for: host)?.capturedRequest == nil)
   }
 
   @Test func unauthorizedIsReadableAndDoesNotEchoBody() async throws {
