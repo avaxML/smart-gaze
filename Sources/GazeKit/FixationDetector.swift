@@ -25,11 +25,27 @@ public struct FixationDetector: Sendable {
   }
 
   public mutating func add(_ point: CGPoint, at timestamp: TimeInterval) -> Fixation? {
+    if let last = buffer.last, timestamp <= last.timestamp {
+      return nil
+    }
+
+    if let last = buffer.last, timestamp - last.timestamp > window {
+      reset()
+    }
+
     buffer.append(Sample(point: point, timestamp: timestamp))
 
     let cutoff = timestamp - window
+    var straddler: Sample?
     while let first = buffer.first, first.timestamp < cutoff {
-      buffer.removeFirst()
+      straddler = buffer.removeFirst()
+    }
+
+    if let straddler, let firstKept = buffer.first,
+      firstKept.timestamp > cutoff,
+      firstKept.timestamp - straddler.timestamp <= window
+    {
+      buffer.insert(straddler, at: 0)
     }
 
     let dispersion = currentDispersion
