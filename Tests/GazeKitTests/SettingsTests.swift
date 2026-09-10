@@ -20,6 +20,16 @@ private func fullyPopulatedSettings() throws -> Settings {
   #expect(decoded == original)
 }
 
+@Test func startupDefaultsUseModifierHeldActivationWithOption() {
+  let settings = Settings.default
+  #expect(settings.activationMode == .modifierHeld)
+  #expect(settings.modifierKey == .option)
+}
+
+@Test func startupDefaultDispersionIsTheUncalibratedPlaceholder() {
+  #expect(Settings.default.dispersionThreshold == 160)
+}
+
 @Test func defaultProviderConfigurationMatchesTheAgreedSchema() {
   let settings = Settings.default
   #expect(settings.activeProvider == .opencode)
@@ -78,9 +88,16 @@ private func fullyPopulatedSettings() throws -> Settings {
   let store = UserDefaultsSettingsStore(defaults: defaults)
   var settings = Settings.default
   settings.dwellSeconds = 1.25
+  settings.dispersionThreshold = 73
+  settings.activationMode = .passiveDwell
   settings.modifierKey = .control
   settings.activeProvider = .anthropic
 
   try store.save(settings)
-  #expect(store.load() == settings)
+
+  let loaded = store.load()
+  #expect(loaded == settings)
+  #expect(loaded.dwellSeconds == 1.25)
+  #expect(loaded.dispersionThreshold == 73)
+  #expect(loaded.activationMode == .passiveDwell)
 }

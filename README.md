@@ -49,6 +49,13 @@ bash Scripts/make-app.sh
 
 `make-app.sh` produces an ad-hoc signed `dist/SmartGaze.app`. `dist/` is gitignored.
 
+## Tuning
+
+The default dispersion threshold is 160 points. That number is an
+uncalibrated placeholder, not a measured value. It stays in place until issue
+#21 records real jitter calibration measurements, so do not read precision into
+it.
+
 ## Licence
 
 MIT. See `LICENSE`.
