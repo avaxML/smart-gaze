@@ -69,6 +69,7 @@ private enum EvalError: Error {
   case countMalformed
   case generationRejected(String)
   case readOnlySecrets
+  case selfCheckFailed(String)
 }
 
 extension EvalError: LocalizedError {
@@ -82,6 +83,7 @@ extension EvalError: LocalizedError {
     case .countMalformed: "Token count response was malformed."
     case .generationRejected(let detail): "Generation rejected: \(detail)"
     case .readOnlySecrets: "The in-memory secret store is read-only."
+    case .selfCheckFailed(let detail): "Report fencing self-check failed: \(detail)"
     }
   }
 }
@@ -364,6 +366,40 @@ private func formatCurrency(_ value: Double) -> String {
   String(format: "$%.6f", value)
 }
 
+private func longestBacktickRun(in text: String) -> Int {
+  var longest = 0
+  var current = 0
+  for character in text {
+    if character == "`" {
+      current += 1
+      longest = max(longest, current)
+    } else {
+      current = 0
+    }
+  }
+  return longest
+}
+
+private func codeFence(for text: String, minimum: Int = 4) -> String {
+  String(repeating: "`", count: max(minimum, longestBacktickRun(in: text) + 1))
+}
+
+private func verifyReportFencing() throws {
+  let samples = [
+    "for i in range(3):\n    print(i)\n```\n0\n1\n2\n```",
+    "wrapper\n````\ninner\n````",
+    "plain explanation with no backticks",
+  ]
+  for sample in samples {
+    let fence = codeFence(for: sample)
+    let longest = longestBacktickRun(in: sample)
+    guard fence.count >= 4, fence.count > longest else {
+      throw EvalError.selfCheckFailed(
+        "outer fence \(fence.count) does not exceed \(longest) backticks")
+    }
+  }
+}
+
 private func renderReport(mode: String, results: [CaseResult], cumulative: Double?) -> String {
   var lines: [String] = []
   lines.append("# Gemini crop explanation eval")
@@ -427,12 +463,14 @@ private func renderReport(mode: String, results: [CaseResult], cumulative: Doubl
     lines.append(contentsOf: result.cropCase.lines)
     lines.append("```")
     if let explanation = result.explanation {
+      let trimmed = explanation.trimmingCharacters(in: .whitespacesAndNewlines)
+      let fence = codeFence(for: trimmed)
       lines.append("")
       lines.append("Explanation:")
       lines.append("")
-      lines.append("```")
-      lines.append(explanation.trimmingCharacters(in: .whitespacesAndNewlines))
-      lines.append("```")
+      lines.append(fence)
+      lines.append(trimmed)
+      lines.append(fence)
     }
   }
   lines.append("")
@@ -444,6 +482,8 @@ private func writeReport(_ text: String, to path: String) throws {
 }
 
 private func runDryRun(reportPath: String) throws {
+  try verifyReportFencing()
+  print("[dry-run] report fencing self-check passed")
   var results: [CaseResult] = []
   for cropCase in cropCases {
     guard let jpeg = renderCrop(lines: cropCase.lines) else {
