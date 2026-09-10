@@ -6,11 +6,33 @@ import Testing
 // caller would, by decoding it, matching its own Codable contract.
 private func fullyPopulatedSettings() throws -> Settings {
   let json = """
-    {"xCoefficients":[1,2,3,4,5,6],"yCoefficients":[6,5,4,3,2,1]}
+    {"inputSpace":"normalized-screen-point-v1","xCoefficients":[1,2,3,4,5,6],
+    "yCoefficients":[6,5,4,3,2,1]}
     """
   var settings = Settings.default
   settings.calibrationMap = try JSONDecoder().decode(CalibrationMap.self, from: Data(json.utf8))
   return settings
+}
+
+private func loadSettings(withStoredCalibration calibration: [String: Any]) throws -> Settings {
+  var settings = Settings.default
+  settings.dwellSeconds = 1.25
+  settings.activationMode = .passiveDwell
+  settings.activeProvider = .anthropic
+
+  let data = try JSONEncoder().encode(settings)
+  var object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+  object["calibrationMap"] = calibration
+  let stored = try JSONSerialization.data(withJSONObject: object)
+
+  let suiteName = "u41-settings-\(UUID().uuidString)"
+  let defaults = try #require(UserDefaults(suiteName: suiteName))
+  defer { defaults.removePersistentDomain(forName: suiteName) }
+
+  let key = "u41-settings-key"
+  let store = UserDefaultsSettingsStore(defaults: defaults, key: key)
+  defaults.set(stored, forKey: key)
+  return store.load()
 }
 
 @Test func settingsRoundTripsThroughJSONLosslessly() throws {
@@ -100,4 +122,42 @@ private func fullyPopulatedSettings() throws -> Settings {
   #expect(loaded.dwellSeconds == 1.25)
   #expect(loaded.dispersionThreshold == 73)
   #expect(loaded.activationMode == .passiveDwell)
+}
+
+@Test func legacyUntaggedCalibrationIsDroppedWhileOtherSettingsSurviveLoad() throws {
+  let loaded = try loadSettings(withStoredCalibration: [
+    "xCoefficients": [1, 2, 3, 4, 5, 6],
+    "yCoefficients": [6, 5, 4, 3, 2, 1],
+  ])
+
+  #expect(loaded.calibrationMap == nil)
+  #expect(loaded.dwellSeconds == 1.25)
+  #expect(loaded.activationMode == .passiveDwell)
+  #expect(loaded.activeProvider == .anthropic)
+}
+
+@Test func wrongMarkerCalibrationIsDroppedWhileOtherSettingsSurviveLoad() throws {
+  let loaded = try loadSettings(withStoredCalibration: [
+    "inputSpace": "gaze-angles-v1",
+    "xCoefficients": [1, 2, 3, 4, 5, 6],
+    "yCoefficients": [6, 5, 4, 3, 2, 1],
+  ])
+
+  #expect(loaded.calibrationMap == nil)
+  #expect(loaded.dwellSeconds == 1.25)
+  #expect(loaded.activationMode == .passiveDwell)
+  #expect(loaded.activeProvider == .anthropic)
+}
+
+@Test func badCoefficientCountIsDroppedWhileOtherSettingsSurviveLoad() throws {
+  let loaded = try loadSettings(withStoredCalibration: [
+    "inputSpace": "normalized-screen-point-v1",
+    "xCoefficients": [1, 2, 3, 4, 5],
+    "yCoefficients": [6, 5, 4, 3, 2, 1],
+  ])
+
+  #expect(loaded.calibrationMap == nil)
+  #expect(loaded.dwellSeconds == 1.25)
+  #expect(loaded.activationMode == .passiveDwell)
+  #expect(loaded.activeProvider == .anthropic)
 }
