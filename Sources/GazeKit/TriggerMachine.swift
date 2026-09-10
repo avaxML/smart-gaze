@@ -65,6 +65,7 @@ public struct TriggerMachine: Sendable {
     case .blink(let event, let time):
       return handleBlink(event, at: time)
     case .faceLost:
+      lastGazePoint = nil
       return leaveToIdle(emitting: .hideReticle)
     case .dismissed:
       return leaveToIdle(emitting: .dismissBubble)
