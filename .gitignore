@@ -8,3 +8,4 @@ dist/
 *.mlpackage/
 *.mlmodelc/
 .local-config/
+/Models/
