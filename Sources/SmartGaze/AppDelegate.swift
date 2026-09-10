@@ -1,7 +1,11 @@
 import AppKit
+import ApplicationServices
+import CoreVideo
 import GazeKit
+import OverlayUI
 import Perception
 import Providers
+import ScreenCapture
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -14,12 +18,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private let secrets = KeychainStore()
   private let camera = CameraController()
   private let captureActivity = CaptureActivity()
+  private let bubble = BubbleController()
+  private var settingsModel: SettingsModel!
+
+  private var coordinator: GazeCoordinator?
+  private var modifierMonitor: ModifierMonitor?
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     NSApp.setActivationPolicy(.accessory)
 
     let settings = settingsStore.load()
     let model = SettingsModel(store: settingsStore, secrets: secrets, settings: settings)
+    settingsModel = model
     settingsWindowController = SettingsWindowController(model: model)
 
     configureMainMenu()
@@ -28,7 +38,87 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     captureActivity.onChange = { [weak self] in self?.refreshMenu() }
     camera.onChange = { [weak self] in self?.refreshMenu() }
     camera.onError = { [weak self] error in self?.presentCameraError(error) }
+    camera.onFrame = { [weak self] frame in self?.handleFrame(frame) }
     refreshMenu()
+  }
+
+  private func handleFrame(_ frame: CameraFrame) {
+    guard let coordinator else { return }
+    let timestamp = ProcessInfo.processInfo.systemUptime
+    Task { await coordinator.handleFrame(frame.pixelBuffer, at: timestamp) }
+  }
+
+  /// Builds the coordinator and the modifier tap for this session. A missing
+  /// Core ML model, or missing Accessibility permission, degrades rather
+  /// than crashing: the reported condition still starts the camera, just
+  /// without the leg that needs the missing piece.
+  private func startGazePipeline() {
+    var settings = settingsModel.settings
+    let pipeline: GazePipeline?
+    do {
+      pipeline = try GazePipeline(
+        faceMeshModelURL: ModelLocator.faceMeshModelURL(),
+        blazeGazeModelURL: ModelLocator.blazeGazeModelURL())
+    } catch {
+      pipeline = nil
+    }
+
+    // Checked before the coordinator is built so its `TrackingPreview` is
+    // configured for the mode that will actually receive input, rather than
+    // being built for `.modifierHeld` and then never hearing from it.
+    let needsAccessibility = settings.activationMode == .modifierHeld
+    let accessibilityGranted = AXIsProcessTrusted()
+    if needsAccessibility && !accessibilityGranted {
+      settings.activationMode = .passiveDwell
+      presentAccessibilityDegradedAlert()
+    }
+
+    let coordinator = GazeCoordinator(
+      settings: settings,
+      gazePipeline: pipeline,
+      capturer: ScreenCaptureKitCapturer(denylist: settings.deniedApps),
+      bubble: bubble,
+      makeExplanationStream: { [weak settingsModel] jpeg in
+        await MainActor.run { settingsModel?.makeExplanationStream(imageJPEG: jpeg) }
+      })
+    self.coordinator = coordinator
+    Task { await coordinator.start() }
+
+    guard needsAccessibility, accessibilityGranted else { return }
+    let monitor = ModifierMonitor(modifierKey: settings.modifierKey) { [weak self] down, time in
+      guard let self else { return }
+      Task {
+        if down {
+          await self.coordinator?.handleModifierDown(at: time)
+        } else {
+          await self.coordinator?.handleModifierUp(at: time)
+        }
+      }
+    }
+    if monitor.start() == .started {
+      modifierMonitor = monitor
+    } else {
+      presentAccessibilityDegradedAlert()
+    }
+  }
+
+  private func stopGazePipeline() {
+    modifierMonitor?.stop()
+    modifierMonitor = nil
+    if let coordinator {
+      Task { await coordinator.stop() }
+    }
+    coordinator = nil
+  }
+
+  private func presentAccessibilityDegradedAlert() {
+    let alert = NSAlert()
+    alert.messageText = "SmartGaze is running in dwell mode"
+    alert.informativeText =
+      "Accessibility permission is not granted, so the modifier key cannot be detected. Grant SmartGaze Accessibility access in System Settings › Privacy & Security to use hold-to-activate; until then, capture fires from a sustained gaze instead."
+    alert.alertStyle = .informational
+    alert.addButton(withTitle: "OK")
+    alert.runModal()
   }
 
   private func configureMainMenu() {
@@ -123,9 +213,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   @objc private func toggleCamera() {
     switch camera.state {
     case .off:
+      startGazePipeline()
       Task { await camera.start() }
     case .starting, .live:
       camera.pause()
+      stopGazePipeline()
     }
   }
 

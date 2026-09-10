@@ -1,3 +1,4 @@
+import CoreVideo
 import Foundation
 import Perception
 
@@ -13,10 +14,12 @@ final class CameraController {
   var onChange: (() -> Void)?
   var onError: ((Error) -> Void)?
   var onObservation: ((FaceObservation?) -> Void)?
+  var onFrame: ((CameraFrame) -> Void)?
 
   private let makeObserver: () -> any FaceObserving
   private var observer: (any FaceObserving)?
   private var drain: Task<Void, Never>?
+  private var frameDrain: Task<Void, Never>?
   private var generation = 0
 
   init(makeObserver: @escaping () -> any FaceObserving = { WebcamFaceObserver() }) {
@@ -65,11 +68,25 @@ final class CameraController {
         self.onObservation?(observation)
       }
     }
+
+    // Not every `FaceObserving` conformer can also hand out raw frames (a
+    // test double built only for landmark behavior, for instance). A failed
+    // cast means no gaze samples run this session, never a fabricated one.
+    guard let frameSource = observer as? any FrameProviding else { return }
+    frameDrain = Task { [weak self] in
+      for await frame in frameSource.frames {
+        if Task.isCancelled { return }
+        guard let self, token == self.generation else { return }
+        self.onFrame?(frame)
+      }
+    }
   }
 
   private func stopCurrentObserver() {
     drain?.cancel()
     drain = nil
+    frameDrain?.cancel()
+    frameDrain = nil
     observer?.stop()
     observer = nil
   }

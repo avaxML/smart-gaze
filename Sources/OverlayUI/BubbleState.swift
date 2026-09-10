@@ -4,6 +4,14 @@ import Observation
 
 public struct PresentationHandle: Equatable, Sendable {
   fileprivate let generation: Int
+
+  /// A real `BubbleController`/`BubbleState` pair only ever mints a handle
+  /// through `begin()`, keyed to its own generation counter. This escape
+  /// hatch exists for a `BubblePresenting` fake that never runs a real
+  /// `BubbleState`, so it still has something to hand back from `show`.
+  public static func forTesting(generation: Int) -> PresentationHandle {
+    PresentationHandle(generation: generation)
+  }
 }
 
 @MainActor

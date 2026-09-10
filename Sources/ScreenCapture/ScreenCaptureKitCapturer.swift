@@ -24,6 +24,12 @@ public struct CapturedRegion: Sendable {
   public let jpeg: Data
   public let rect: CGRect
   public let displayID: CGDirectDisplayID
+
+  public init(jpeg: Data, rect: CGRect, displayID: CGDirectDisplayID) {
+    self.jpeg = jpeg
+    self.rect = rect
+    self.displayID = displayID
+  }
 }
 
 public enum CaptureError: Error, Equatable, Sendable {

@@ -1,5 +1,6 @@
 import AVFoundation
 import CoreGraphics
+import CoreVideo
 import Foundation
 import GazeKit
 import Vision
@@ -10,10 +11,13 @@ public enum PerceptionError: Error, Equatable, Sendable {
   case cannotConfigureSession
 }
 
-public final class WebcamFaceObserver: NSObject, FaceObserving, @unchecked Sendable {
+public final class WebcamFaceObserver: NSObject, FaceObserving, FrameProviding, @unchecked Sendable
+{
   public let faces: AsyncStream<FaceObservation?>
+  public let frames: AsyncStream<CameraFrame>
 
   private let continuation: AsyncStream<FaceObservation?>.Continuation
+  private let frameContinuation: AsyncStream<CameraFrame>.Continuation
   private let session = AVCaptureSession()
   private let sessionQueue = DispatchQueue(label: "com.avaxml.smartgaze.perception.session")
   private let videoQueue = DispatchQueue(label: "com.avaxml.smartgaze.perception.video")
@@ -23,6 +27,12 @@ public final class WebcamFaceObserver: NSObject, FaceObserving, @unchecked Senda
     var streamContinuation: AsyncStream<FaceObservation?>.Continuation!
     self.faces = AsyncStream(bufferingPolicy: .bufferingNewest(1)) { streamContinuation = $0 }
     self.continuation = streamContinuation
+
+    var frameStreamContinuation: AsyncStream<CameraFrame>.Continuation!
+    self.frames = AsyncStream(bufferingPolicy: .bufferingNewest(1)) {
+      frameStreamContinuation = $0
+    }
+    self.frameContinuation = frameStreamContinuation
 
     let request = VNDetectFaceLandmarksRequest()
     request.revision = VNDetectFaceLandmarksRequestRevision3
@@ -54,6 +64,7 @@ public final class WebcamFaceObserver: NSObject, FaceObserving, @unchecked Senda
       self.session.stopRunning()
     }
     continuation.finish()
+    frameContinuation.finish()
   }
 
   private func requestCameraAccess() async -> Bool {
@@ -113,9 +124,14 @@ extension WebcamFaceObserver: AVCaptureVideoDataOutputSampleBufferDelegate {
     do {
       try handler.perform([landmarksRequest])
     } catch {
+      frameContinuation.yield(CameraFrame(pixelBuffer: pixelBuffer))
       continuation.yield(nil)
       return
     }
+
+    // Vision only reads the buffer above; the frame stream's consumer is the
+    // last owner, so the yield comes after every local use of `pixelBuffer`.
+    frameContinuation.yield(CameraFrame(pixelBuffer: pixelBuffer))
 
     guard
       let face = (landmarksRequest.results ?? []).first,
