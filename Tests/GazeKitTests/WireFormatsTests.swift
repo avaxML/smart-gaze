@@ -82,6 +82,52 @@ import Testing
   #expect(source["media_type"] as? String == "image/jpeg")
 }
 
+@Test func requestBodiesCarryLiteralOutputCap() throws {
+  let jpeg = Data([0xFF, 0xD8])
+  let gemini = try #require(
+    try JSONSerialization.jsonObject(
+      with: try GeminiWire.requestBody(
+        model: "m", system: "S", prompt: "P", imageJPEG: jpeg, maxOutputTokens: 512)
+    ) as? [String: Any])
+  let config = try #require(gemini["generationConfig"] as? [String: Any])
+  #expect(config["maxOutputTokens"] as? Int == 512)
+
+  let openAI = try #require(
+    try JSONSerialization.jsonObject(
+      with: try OpenAIWire.requestBody(
+        model: "m", system: "S", prompt: "P", imageJPEG: jpeg, maxOutputTokens: 512)
+    ) as? [String: Any])
+  #expect(openAI["max_tokens"] as? Int == 512)
+
+  let anthropic = try #require(
+    try JSONSerialization.jsonObject(
+      with: try AnthropicWire.requestBody(
+        model: "m", system: "S", prompt: "P", imageJPEG: jpeg, maxOutputTokens: 512)
+    ) as? [String: Any])
+  #expect(anthropic["max_tokens"] as? Int == 512)
+}
+
+@Test func requestBodiesDefaultOutputCapTo1024() throws {
+  let jpeg = Data([0xFF, 0xD8])
+  let gemini = try #require(
+    try JSONSerialization.jsonObject(
+      with: try GeminiWire.requestBody(model: "m", system: "S", prompt: "P", imageJPEG: jpeg)
+    ) as? [String: Any])
+  #expect((gemini["generationConfig"] as? [String: Any])?["maxOutputTokens"] as? Int == 1024)
+
+  let openAI = try #require(
+    try JSONSerialization.jsonObject(
+      with: try OpenAIWire.requestBody(model: "m", system: "S", prompt: "P", imageJPEG: jpeg)
+    ) as? [String: Any])
+  #expect(openAI["max_tokens"] as? Int == 1024)
+
+  let anthropic = try #require(
+    try JSONSerialization.jsonObject(
+      with: try AnthropicWire.requestBody(model: "m", system: "S", prompt: "P", imageJPEG: jpeg)
+    ) as? [String: Any])
+  #expect(anthropic["max_tokens"] as? Int == 1024)
+}
+
 @Test func requestBodiesContainNoAPIKey() throws {
   let jpeg = Data([0xFF, 0xD8])
   let bodies = [

@@ -12,15 +12,22 @@ enum ProviderWire {
     }
   }
 
-  func requestBody(model: String, system: String, prompt: String, imageJPEG: Data) throws -> Data {
+  func requestBody(
+    model: String, system: String, prompt: String, imageJPEG: Data, maxOutputTokens: Int
+  ) throws -> Data {
     switch self {
     case .gemini:
-      try GeminiWire.requestBody(model: model, system: system, prompt: prompt, imageJPEG: imageJPEG)
+      try GeminiWire.requestBody(
+        model: model, system: system, prompt: prompt, imageJPEG: imageJPEG,
+        maxOutputTokens: maxOutputTokens)
     case .openAI:
-      try OpenAIWire.requestBody(model: model, system: system, prompt: prompt, imageJPEG: imageJPEG)
+      try OpenAIWire.requestBody(
+        model: model, system: system, prompt: prompt, imageJPEG: imageJPEG,
+        maxOutputTokens: maxOutputTokens)
     case .anthropic:
       try AnthropicWire.requestBody(
-        model: model, system: system, prompt: prompt, imageJPEG: imageJPEG)
+        model: model, system: system, prompt: prompt, imageJPEG: imageJPEG,
+        maxOutputTokens: maxOutputTokens)
     }
   }
 
@@ -67,6 +74,7 @@ final class RedirectGuard: NSObject, URLSessionTaskDelegate, @unchecked Sendable
 public final class HTTPProvider: LLMProvider, @unchecked Sendable {
   public let kind: ProviderKind
   public let settings: ProviderSettings
+  public let maximumOutputTokens: Int
 
   private let secrets: any SecretStore
   let session: URLSession
@@ -75,10 +83,12 @@ public final class HTTPProvider: LLMProvider, @unchecked Sendable {
     kind: ProviderKind,
     settings: ProviderSettings,
     secrets: any SecretStore,
-    session: URLSession? = nil
+    session: URLSession? = nil,
+    maximumOutputTokens: Int = 1024
   ) {
     self.kind = kind
     self.settings = settings
+    self.maximumOutputTokens = maximumOutputTokens
     self.secrets = secrets
     self.session = URLSession(
       configuration: Self.sanitizedConfiguration(session?.configuration),
@@ -167,11 +177,13 @@ public final class HTTPProvider: LLMProvider, @unchecked Sendable {
   func makeRequest(key: String, imageJPEG: Data, prompt: String, system: String) throws
     -> URLRequest
   {
+    guard maximumOutputTokens > 0 else { throw ProviderError.invalidConfiguration }
     let body = try ProviderWire.of(kind).requestBody(
       model: settings.model,
       system: system,
       prompt: prompt,
-      imageJPEG: imageJPEG
+      imageJPEG: imageJPEG,
+      maxOutputTokens: maximumOutputTokens
     )
     var request = URLRequest(url: try endpointURL())
     request.httpMethod = "POST"
