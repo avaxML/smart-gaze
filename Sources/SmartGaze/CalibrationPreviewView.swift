@@ -9,26 +9,28 @@ struct CalibrationPreviewView: View {
   var model: CalibrationPreviewModel
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      Picker("Preview source", selection: sourceBinding) {
-        ForEach(CalibrationPreviewModel.Source.allCases) { source in
-          Text(source.title).tag(source)
+    ScrollView {
+      VStack(alignment: .leading, spacing: 12) {
+        Picker("Preview source", selection: sourceBinding) {
+          ForEach(CalibrationPreviewModel.Source.allCases) { source in
+            Text(source.title).tag(source)
+          }
         }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+
+        sourceSection
+
+        HStack(alignment: .top, spacing: 12) {
+          targetArea
+          telemetryPanel.frame(width: 300, alignment: .topLeading)
+        }
+
+        explanationPanel
       }
-      .pickerStyle(.segmented)
-      .labelsHidden()
-
-      sourceSection
-
-      HStack(alignment: .top, spacing: 12) {
-        targetArea
-        telemetryPanel.frame(width: 300, alignment: .topLeading)
-      }
-
-      explanationPanel
+      .padding(16)
+      .frame(minWidth: 760, alignment: .topLeading)
     }
-    .padding(16)
-    .frame(minWidth: 760, minHeight: 620)
     .background {
       SimulationEventBridge(
         isActive: model.isSimulationInputActive,

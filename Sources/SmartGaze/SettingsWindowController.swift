@@ -36,9 +36,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     let window = NSWindow(contentViewController: hosting)
     window.title = "SmartGaze Settings"
     window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-    window.contentMinSize = NSSize(width: 760, height: 620)
+    window.contentMinSize = NSSize(width: 760, height: 400)
     window.isReleasedWhenClosed = false
     window.delegate = self
+    window.toolbarStyle = .preference
+    window.toolbar = NSToolbar()
     return window
   }
 }

@@ -13,32 +13,30 @@ struct SettingsView: View {
   var body: some View {
     VStack(spacing: 0) {
       if let error = model.persistenceError {
-        Text(error)
-          .font(.callout)
-          .foregroundStyle(.red)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(.horizontal, 16)
-          .padding(.top, 8)
+        GroupBox {
+          Label(error, systemImage: "exclamationmark.triangle.fill")
+            .foregroundStyle(.orange)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
       }
       TabView(selection: $selectedTab) {
         GeneralSettingsView(model: model)
-          .frame(width: 560, height: 440)
           .tabItem { Label("General", systemImage: "gear") }
           .tag(Tab.general)
         CalibrationPreviewView(model: preview)
           .tabItem { Label("Calibration & Preview", systemImage: "eye") }
           .tag(Tab.preview)
         ProviderSettingsView(model: model)
-          .frame(width: 560, height: 440)
           .tabItem { Label("Provider", systemImage: "brain") }
           .tag(Tab.provider)
         PrivacySettingsView(model: model)
-          .frame(width: 560, height: 440)
           .tabItem { Label("Privacy", systemImage: "hand.raised") }
           .tag(Tab.privacy)
       }
     }
-    .frame(minWidth: 760, minHeight: 620)
+    .frame(minWidth: 760, minHeight: 400)
     .onChange(of: selectedTab) { _, tab in
       if tab == .preview {
         preview.prepareForPresentation(from: model)
@@ -75,22 +73,53 @@ private struct GeneralSettingsView: View {
         }
       }
 
-      Section("Dwell") {
-        TextField(
-          "Dwell seconds",
-          value: model.dwellSecondsBinding(),
-          format: .number.precision(.fractionLength(1))
+      Section {
+        boundedRow(
+          "Dwell time", value: model.dwellSecondsBinding(), range: SettingsRange.dwellSeconds,
+          step: 0.1, unit: "s", fractionDigits: 1)
+        boundedRow(
+          "Dispersion threshold", value: model.dispersionThresholdBinding(),
+          range: SettingsRange.dispersionThreshold, step: 5, unit: "pt", fractionDigits: 0)
+      } header: {
+        Text("Dwell")
+      } footer: {
+        Text(
+          "Dwell time is how long your gaze must hold still before an action triggers. Dispersion threshold is how far your gaze can wander, in screen points, and still count as holding still. Lower is stricter, higher tolerates more eye jitter."
         )
-        TextField(
-          "Dispersion threshold", value: model.dispersionThresholdBinding(), format: .number)
       }
 
-      Section("Bubble") {
-        TextField("Width", value: model.bubbleWidthBinding(), format: .number)
-        TextField("Max height", value: model.bubbleMaxHeightBinding(), format: .number)
+      Section {
+        boundedRow(
+          "Width", value: model.bubbleWidthBinding(), range: SettingsRange.bubbleWidth, step: 10,
+          unit: "pt", fractionDigits: 0)
+        boundedRow(
+          "Max height", value: model.bubbleMaxHeightBinding(), range: SettingsRange.bubbleMaxHeight,
+          step: 10, unit: "pt", fractionDigits: 0)
+      } header: {
+        Text("Bubble")
+      } footer: {
+        Text("Controls how large the on-screen explanation bubble is allowed to grow, in points.")
       }
     }
     .formStyle(.grouped)
+  }
+
+  private func boundedRow(
+    _ title: String, value: Binding<Double>, range: ClosedRange<Double>, step: Double.Stride,
+    unit: String, fractionDigits: Int
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 4) {
+      HStack {
+        Text(title)
+        Spacer()
+        Text(
+          "\(value.wrappedValue.formatted(.number.precision(.fractionLength(fractionDigits)))) \(unit)"
+        )
+        .monospacedDigit()
+        .foregroundStyle(.secondary)
+      }
+      Slider(value: value, in: range, step: step)
+    }
   }
 
   private func activationLabel(_ mode: ActivationMode) -> String {
@@ -114,7 +143,6 @@ private struct ProviderSettingsView: View {
             Text(providerLabel(kind)).tag(kind)
           }
         }
-        .pickerStyle(.segmented)
       }
 
       Section("Configuration") {
