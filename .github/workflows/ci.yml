@@ -18,6 +18,13 @@ jobs:
       - uses: actions/checkout@v4
       - run: swift test
 
+  model-integration:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash Scripts/fetch-blazegaze.sh
+      - run: SMART_GAZE_MODEL_TESTS=1 SMART_GAZE_MODEL_PATH=Models/blazegaze.mlmodelc swift test
+
   lint:
     runs-on: macos-26
     steps:

@@ -7,4 +7,6 @@ DerivedData/
 dist/
 *.mlpackage/
 *.mlmodelc/
+/Models/
 .local-config/
+/Models/

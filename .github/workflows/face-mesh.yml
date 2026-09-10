@@ -1,0 +1,24 @@
+name: Face Mesh
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  face-mesh:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch, verify and compile the pinned model
+        run: bash Scripts/fetch-face-mesh.sh
+
+      - name: Probe install verification (valid cache, corruption, lock)
+        run: bash Scripts/probe-face-mesh-install.sh
+
+      - name: Run face-mesh model integration tests
+        env:
+          SMART_GAZE_FACE_MESH_TESTS: "1"
+          SMART_GAZE_FACE_MESH_MODEL_PATH: Models/face-mesh/face_mesh.mlmodelc
+        run: swift test --filter FaceMesh
