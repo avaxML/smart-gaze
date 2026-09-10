@@ -6,7 +6,11 @@ import Testing
 @testable import Perception
 
 private func requireModelURL() throws -> URL {
-  guard ProcessInfo.processInfo.environment["SMART_GAZE_MODEL_TESTS"] == "1" else {
+  guard modelTestsEnabled(ProcessInfo.processInfo.environment) else {
+    FileHandle.standardError.write(
+      Data(
+        "MODEL TEST SKIPPED: BlazeGaze contract tests did not run. Set SMART_GAZE_MODEL_TESTS=1 and SMART_GAZE_MODEL_PATH.\n"
+          .utf8))
     try Test.cancel(
       "set SMART_GAZE_MODEL_TESTS=1 and SMART_GAZE_MODEL_PATH to run model integration tests")
   }
