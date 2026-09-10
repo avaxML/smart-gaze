@@ -63,8 +63,8 @@ public struct Settings: Codable, Equatable, Sendable {
 
   public static let `default` = Settings(
     dwellSeconds: 0.6,
-    dispersionThreshold: 40,
-    activationMode: .passiveDwell,
+    dispersionThreshold: 160,
+    activationMode: .modifierHeld,
     modifierKey: .option,
     bubbleWidth: 360,
     bubbleMaxHeight: 480,
