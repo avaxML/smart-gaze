@@ -38,7 +38,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     configureStatusItem()
 
     captureActivity.onChange = { [weak self] in self?.refreshMenu() }
-    camera.onChange = { [weak self] in self?.refreshMenu() }
+    camera.onChange = { [weak self] in
+      LaunchDiagnostics.record(.cameraState, "\(String(describing: self?.camera.state))")
+      self?.refreshMenu()
+    }
     camera.onError = { [weak self] error in self?.presentCameraError(error) }
     settingsModel.onCalibrationChanged = { [weak self] in self?.refreshMenu() }
     camera.onFrame = { [weak self] frame in self?.handleFrame(frame) }
@@ -46,6 +49,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       Task { await self?.coordinator?.updateVerticalFieldOfView(degrees: degrees) }
     }
     refreshMenu()
+    LaunchDiagnostics.record(.launchCompleted)
+    if LaunchDiagnostics.isEnabled { toggleCamera() }
   }
 
   private func handleFrame(_ frame: CameraFrame) {
