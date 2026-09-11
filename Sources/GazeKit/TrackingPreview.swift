@@ -58,7 +58,7 @@ public struct TrackingPreview: Sendable {
     cooldown: TimeInterval = 3.0,
     bounds: CGRect = CGRect(x: 0, y: 0, width: 640, height: 400),
     dwellWindow: TimeInterval = 1.2,
-    dispersionThreshold: Double = 160
+    dispersionThreshold: Double = 240
   ) {
     self.mode = mode
     self.bounds = bounds
