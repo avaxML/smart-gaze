@@ -9,11 +9,20 @@ import Testing
 
 @testable import SmartGaze
 
+private final class RecordedRequests: @unchecked Sendable {
+  private let lock = NSLock()
+  private var storage: [CaptureRequest] = []
+  var all: [CaptureRequest] { lock.withLock { storage } }
+  func record(_ request: CaptureRequest) { lock.withLock { storage.append(request) } }
+}
+
 private struct FakeCapturer: RegionCapturing {
   let onCapture: @Sendable () async throws -> CapturedRegion
+  let recorded = RecordedRequests()
 
   func capture(_ request: CaptureRequest) async throws -> CapturedRegion {
-    try await onCapture()
+    recorded.record(request)
+    return try await onCapture()
   }
 }
 
@@ -293,4 +302,64 @@ private final class Counter: @unchecked Sendable {
 
   #expect(bubble.shownSizes.first?.width == 512)
   #expect(bubble.shownSizes.first?.height == 300)
+}
+
+@MainActor
+@Test func theCaptureRequestIsSizedAsConfigured() async {
+  let capturer = FakeCapturer {
+    CapturedRegion(jpeg: oneByOneJPEG(), rect: .zero, displayID: CGMainDisplayID())
+  }
+  let coordinator = GazeCoordinator(
+    settings: .default,
+    gazePipeline: nil,
+    capturer: capturer,
+    bubble: FakeBubble(),
+    captureSize: CGSize(width: 600, height: 400),
+    makeExplanationStream: { _ in nil })
+  await coordinator.start()
+
+  await coordinator.apply([.capture(at: CGPoint(x: 100, y: 100))])
+  await coordinator.waitUntilCaptureSettled()
+
+  guard let request = capturer.recorded.all.first else {
+    Issue.record("expected a capture request")
+    return
+  }
+  #expect(request.size == CGSize(width: 600, height: 400))
+}
+
+@Test func aPointOnAnOffsetDisplayMapsIntoThatDisplaysOwnCoordinates() {
+  let builtIn = (id: CGDirectDisplayID(1), bounds: CGRect(x: 0, y: 0, width: 1728, height: 1117))
+  let external = (
+    id: CGDirectDisplayID(2), bounds: CGRect(x: -1920, y: 219, width: 1920, height: 1080)
+  )
+
+  let result = GazeCoordinator.displayLocalPoint(
+    for: CGPoint(x: -960, y: 759), displays: [builtIn, external], fallback: builtIn)
+
+  #expect(result.displayID == 2)
+  #expect(result.localPoint == CGPoint(x: 960, y: 540))
+}
+
+@Test func aPointOnTheBuiltInDisplayKeepsItsCoordinates() {
+  let builtIn = (id: CGDirectDisplayID(1), bounds: CGRect(x: 0, y: 0, width: 1728, height: 1117))
+  let external = (
+    id: CGDirectDisplayID(2), bounds: CGRect(x: -1920, y: 219, width: 1920, height: 1080)
+  )
+
+  let result = GazeCoordinator.displayLocalPoint(
+    for: CGPoint(x: 864, y: 558), displays: [builtIn, external], fallback: builtIn)
+
+  #expect(result.displayID == 1)
+  #expect(result.localPoint == CGPoint(x: 864, y: 558))
+}
+
+@Test func aPointOnNoDisplayClampsIntoTheFallback() {
+  let builtIn = (id: CGDirectDisplayID(1), bounds: CGRect(x: 0, y: 0, width: 1728, height: 1117))
+
+  let result = GazeCoordinator.displayLocalPoint(
+    for: CGPoint(x: 9999, y: -9999), displays: [builtIn], fallback: builtIn)
+
+  #expect(result.displayID == 1)
+  #expect(result.localPoint == CGPoint(x: 1728, y: 0))
 }
