@@ -199,6 +199,7 @@ actor GazeCoordinator {
   }
 
   private func handleDismiss() {
+    tracking.handle(.presentationEnded(ProcessInfo.processInfo.systemUptime))
     guard activeCaptureTask != nil else { return }
     activeCaptureTask?.cancel()
     activeCaptureTask = nil

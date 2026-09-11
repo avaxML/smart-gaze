@@ -9,6 +9,7 @@ public enum TrackingPreviewInput: Equatable, Sendable {
   case modifierDown(TimeInterval)
   case modifierUp(TimeInterval)
   case blink(BlinkEvent, TimeInterval)
+  case presentationEnded(TimeInterval)
   case reset
 }
 
@@ -42,6 +43,7 @@ public struct TrackingPreview: Sendable {
   public private(set) var localTriggerCount = 0
   public private(set) var lastIssue: TrackingPreviewIssue?
   public private(set) var lastTimestamp: TimeInterval?
+  public var isPresenting: Bool { machine.isPresenting }
 
   /// Live progress toward the current dwell window, from the real detector
   /// buffer span and dispersion. `0` when no cluster is forming.
@@ -83,6 +85,9 @@ public struct TrackingPreview: Sendable {
       return apply(machine.handle(.modifierUp(time)))
     case .blink(let event, let time):
       return handleBlink(event, at: time)
+    case .presentationEnded(let time):
+      guard advance(to: time) else { return [] }
+      return apply(machine.handle(.presentationEnded(time)))
     case .reset:
       reset()
       return []
