@@ -79,6 +79,10 @@ public final class HTTPProvider: LLMProvider, @unchecked Sendable {
   private let secrets: any SecretStore
   let session: URLSession
 
+  /// One conversation id for the life of this provider. The Go gateway
+  /// rejects requests without one and uses it for routing and prompt caching.
+  let conversationID = UUID().uuidString.lowercased()
+
   public init(
     kind: ProviderKind,
     settings: ProviderSettings,
@@ -196,8 +200,12 @@ public final class HTTPProvider: LLMProvider, @unchecked Sendable {
     case .anthropic:
       request.setValue(key, forHTTPHeaderField: "x-api-key")
       request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-    case .openai, .opencode, .proxy:
+    case .openai, .proxy:
       request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+    case .opencode:
+      request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+      request.setValue(conversationID, forHTTPHeaderField: "x-opencode-session")
+      request.setValue("smart-gaze/0.1.0", forHTTPHeaderField: "User-Agent")
     }
     return request
   }

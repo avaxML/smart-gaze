@@ -118,8 +118,8 @@ private func loadSettings(withStoredCalibration calibration: [String: Any]) thro
 @Test func defaultProviderConfigurationMatchesTheAgreedSchema() {
   let settings = Settings.default
   #expect(settings.activeProvider == .opencode)
-  #expect(settings.providers[.opencode]?.baseURL.absoluteString == "https://opencode.ai/zen/v1")
-  #expect(settings.providers[.opencode]?.model == "deepseek-v4-flash-vision-exp")
+  #expect(settings.providers[.opencode]?.baseURL.absoluteString == "https://opencode.ai/zen/go/v1")
+  #expect(settings.providers[.opencode]?.model == "deepseek-v4.1-flash")
   #expect(settings.providers[.opencode]?.keychainAccount == .openCodeKey)
   #expect(settings.providers[.google]?.model == "gemini-2.5-flash")
   #expect(settings.providers[.openai]?.model == "gpt-4o-mini")
