@@ -6,9 +6,9 @@ import GazeKit
 /// A global `flagsChanged` `CGEvent` tap for the configured modifier key.
 ///
 /// Needs Accessibility permission (`AXIsProcessTrusted`); without it macOS
-/// refuses to create the tap. The caller is responsible for degrading to
-/// dwell mode when `start()` reports that rather than pretending the
-/// modifier will ever fire.
+/// refuses to create the tap. The caller is responsible for telling the user
+/// when `start()` reports that rather than pretending the modifier will
+/// ever fire.
 @MainActor
 final class ModifierMonitor {
   enum StartResult: Equatable {

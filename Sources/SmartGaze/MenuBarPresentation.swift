@@ -39,7 +39,7 @@ enum MenuBarState: Equatable, Sendable {
     case .timedOut: "The camera did not start"
     case .cameraLive: "Tracking"
     case .uncalibrated: "Calibration needed"
-    case .accessibilityDegraded: "Dwell mode, Accessibility not granted"
+    case .accessibilityDegraded: "Paused, Accessibility not granted"
     case .modelsMissing: "Gaze models not found"
     case .captureBusy: "Explaining what you looked at…"
     }
@@ -54,7 +54,8 @@ enum MenuBarState: Equatable, Sendable {
     case .timedOut: "SmartGaze camera did not start"
     case .cameraLive: "SmartGaze camera is live"
     case .uncalibrated: "SmartGaze needs calibration"
-    case .accessibilityDegraded: "SmartGaze is running in dwell mode"
+    case .accessibilityDegraded:
+      "SmartGaze cannot see the modifier key until Accessibility is granted"
     case .modelsMissing: "SmartGaze cannot find its gaze models"
     case .captureBusy: "SmartGaze is capturing"
     }
