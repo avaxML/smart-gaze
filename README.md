@@ -56,6 +56,68 @@ uncalibrated placeholder, not a measured value. It stays in place until issue
 #21 records real jitter calibration measurements, so do not read precision into
 it.
 
+## Running it for the first time
+
+The app is `LSUIElement`, so it has no Dock icon and no window. Everything is the menu bar item.
+
+```
+bash Scripts/fetch-models.sh
+bash Scripts/make-app.sh
+open dist/SmartGaze.app
+```
+
+Then click the menu bar icon and choose Start. The icon tells you what the app is waiting for rather
+than leaving you guessing, so read it if nothing seems to happen.
+
+### Two permissions, asked at different moments
+
+**Camera** is requested the first time you press Start. Until you answer, the menu says it is waiting for
+permission. The prompt can land on whichever display is not in front of you, which is worth knowing on a
+multi-monitor setup.
+
+**Accessibility** is only needed for the default modifier-held activation mode, because watching for a
+held Fn or Option key means tapping global events. Without it the app falls back to passive dwell and
+says so in the menu. It never blocks startup waiting for you to notice.
+
+### The grant is tied to the exact build
+
+This app is signed ad hoc, so macOS identifies it by the hash of what was built. That hash is stable
+across rebuilds of unchanged source, so a grant survives running `make-app.sh` again. **Changing any
+source file produces a different app as far as the system is concerned, and the permission has to be
+granted again.**
+
+In practice: build once, grant once, then test. If you rebuild after changing code and the camera goes
+back to asking for permission, nothing is broken.
+
+### Calibration
+
+Gaze is meaningless without it, so the app does not guess. Until you calibrate, the menu shows an
+uncalibrated state with a Calibrate Now action, and frames are deliberately discarded rather than turned
+into a gaze point nobody should trust.
+
+Calibration shows nine targets in turn. Hold your gaze on each one. A burst that is too scattered is
+thrown away and that target is shown again, so one bad moment does not quietly poison the whole fit.
+Escape abandons the run and leaves any previous calibration exactly as it was.
+
+At the end it reports the error it measured against four points it did **not** use in the fit, separately
+for horizontal and vertical, because those two axes do not behave the same and one averaged number would
+hide the weaker one. That figure is the honest answer to whether this works for you.
+
+## Checking it still works
+
+```
+bash Scripts/launch-smoke.sh
+```
+Launches the built bundle and fails if startup never completes or the camera never reports a state. Three
+shipped defects lived in that path with the whole unit suite green.
+
+```
+bash Scripts/run-video-gaze-harness.sh <video.mp4> Models/face_mesh.mlmodelc Models/blazegaze.mlmodelc 200
+```
+Runs real video frames through the gaze pipeline and fails if any frame does not produce a finite gaze
+point. Release build only; the debug build is roughly twenty times slower and its latency numbers mean
+nothing.
+
 ## Model provenance
 
 `Perception` runs the compiled BlazeGaze Core ML model through
