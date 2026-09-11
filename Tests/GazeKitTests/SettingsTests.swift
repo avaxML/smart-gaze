@@ -6,8 +6,8 @@ import Testing
 // caller would, by decoding it, matching its own Codable contract.
 private func fullyPopulatedSettings() throws -> Settings {
   let json = """
-    {"inputSpace":"normalized-screen-point-v1","xCoefficients":[1,2,3,4,5,6],
-    "yCoefficients":[6,5,4,3,2,1]}
+    {"inputSpace":"normalized-screen-point-affine-v2","xCoefficients":[1,2,3],
+    "yCoefficients":[3,2,1]}
     """
   var settings = Settings.default
   settings.calibrationMap = try JSONDecoder().decode(CalibrationMap.self, from: Data(json.utf8))
@@ -189,8 +189,8 @@ private func loadSettings(withStoredCalibration calibration: [String: Any]) thro
 
 @Test func legacyUntaggedCalibrationIsDroppedWhileOtherSettingsSurviveLoad() throws {
   let loaded = try loadSettings(withStoredCalibration: [
-    "xCoefficients": [1, 2, 3, 4, 5, 6],
-    "yCoefficients": [6, 5, 4, 3, 2, 1],
+    "xCoefficients": [1, 2, 3],
+    "yCoefficients": [3, 2, 1],
   ])
 
   #expect(loaded.calibrationMap == nil)
@@ -202,8 +202,8 @@ private func loadSettings(withStoredCalibration calibration: [String: Any]) thro
 @Test func wrongMarkerCalibrationIsDroppedWhileOtherSettingsSurviveLoad() throws {
   let loaded = try loadSettings(withStoredCalibration: [
     "inputSpace": "gaze-angles-v1",
-    "xCoefficients": [1, 2, 3, 4, 5, 6],
-    "yCoefficients": [6, 5, 4, 3, 2, 1],
+    "xCoefficients": [1, 2, 3],
+    "yCoefficients": [3, 2, 1],
   ])
 
   #expect(loaded.calibrationMap == nil)
@@ -214,9 +214,9 @@ private func loadSettings(withStoredCalibration calibration: [String: Any]) thro
 
 @Test func badCoefficientCountIsDroppedWhileOtherSettingsSurviveLoad() throws {
   let loaded = try loadSettings(withStoredCalibration: [
-    "inputSpace": "normalized-screen-point-v1",
+    "inputSpace": "normalized-screen-point-affine-v2",
     "xCoefficients": [1, 2, 3, 4, 5],
-    "yCoefficients": [6, 5, 4, 3, 2, 1],
+    "yCoefficients": [3, 2, 1],
   ])
 
   #expect(loaded.calibrationMap == nil)

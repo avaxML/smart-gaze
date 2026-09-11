@@ -14,6 +14,7 @@ enum LaunchDiagnostics {
     case launchCompleted = "launch-completed"
     case cameraState = "camera-state"
     case pipelineReady = "pipeline-ready"
+    case calibration = "calibration"
     case intrinsicMatrix = "intrinsic-matrix"
   }
 

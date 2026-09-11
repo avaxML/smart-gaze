@@ -16,8 +16,8 @@ private let gridPoints: [NormalizedGazePoint] = [
   NormalizedGazePoint(x: 0.4, y: 0.3),
 ]
 
-private let exactXCoefficients = [100.0, 500.0, 50.0, 20.0, 10.0, 5.0]
-private let exactYCoefficients = [200.0, 400.0, 30.0, 15.0, 8.0, 3.0]
+private let exactXCoefficients = [100.0, 500.0, 50.0]
+private let exactYCoefficients = [200.0, 30.0, 400.0]
 
 private func makeSamples(
   xCoefficients: [Double],
@@ -47,7 +47,7 @@ private struct SeededPerturbation {
     xCoefficients: exactXCoefficients, yCoefficients: exactYCoefficients)
   let map = try solveCalibration(samples)
 
-  for index in 0..<6 {
+  for index in 0..<3 {
     #expect(abs(map.xCoefficients[index] - exactXCoefficients[index]) <= 1e-9)
     #expect(abs(map.yCoefficients[index] - exactYCoefficients[index]) <= 1e-9)
   }
@@ -85,23 +85,37 @@ private struct SeededPerturbation {
   }
 }
 
-@Test func linearRelationshipHasNearZeroQuadraticTerms() throws {
+@Test func aSignInvertedAxisIsAbsorbedByTheLinearTerm() throws {
+  // The live model's horizontal output runs opposite to screen x. An affine fit
+  // must handle that with a negative coefficient rather than failing.
   let samples = makeSamples(
-    xCoefficients: [100, 500, 50, 0, 0, 0],
-    yCoefficients: [200, 400, 30, 0, 0, 0])
+    xCoefficients: [1000.0, -800.0, 0.0], yCoefficients: [500.0, 0.0, 600.0])
   let map = try solveCalibration(samples)
+  #expect(abs(map.xCoefficients[1] - (-800.0)) <= 1e-9)
+  #expect(map.xCoefficients[1] < 0)
+}
 
-  for index in 3..<6 {
-    #expect(abs(map.xCoefficients[index]) <= 1e-9)
-    #expect(abs(map.yCoefficients[index]) <= 1e-9)
+@Test func nineNearlyCollinearPointsDoNotExplodeTheCoefficients() throws {
+  // The live run produced inputs whose gaze values barely varied. The quadratic
+  // this replaces returned coefficients in the millions on such input.
+  var gaze: [NormalizedGazePoint] = []
+  for i in 0..<9 {
+    gaze.append(
+      NormalizedGazePoint(x: 0.40 - 0.01 * Double(i % 3), y: -0.30 + 0.05 * Double(i / 3)))
+  }
+  let samples = makeSamples(
+    xCoefficients: [864.0, 1000.0, 0.0], yCoefficients: [558.0, 0.0, 800.0], gaze: gaze)
+  let map = try solveCalibration(samples)
+  for c in map.xCoefficients + map.yCoefficients {
+    #expect(abs(c) < 10_000)
   }
 }
 
 @Test func tooFewSamplesThrows() {
   let samples = makeSamples(
     xCoefficients: exactXCoefficients, yCoefficients: exactYCoefficients,
-    gaze: Array(gridPoints.prefix(5)))
-  #expect(throws: CalibrationError.insufficientSamples(got: 5, need: 6)) {
+    gaze: Array(gridPoints.prefix(2)))
+  #expect(throws: CalibrationError.insufficientSamples(got: 2, need: 3)) {
     try solveCalibration(samples)
   }
 }
@@ -133,7 +147,7 @@ private struct SeededPerturbation {
 
 @Test func untaggedLegacyMapFailsToDecode() {
   let json = """
-    {"xCoefficients":[1,2,3,4,5,6],"yCoefficients":[6,5,4,3,2,1]}
+    {"xCoefficients":[1,2,3],"yCoefficients":[3,2,1]}
     """
   #expect(throws: DecodingError.self) {
     try JSONDecoder().decode(CalibrationMap.self, from: Data(json.utf8))
@@ -142,7 +156,7 @@ private struct SeededPerturbation {
 
 @Test func wrongInputSpaceMarkerFailsToDecode() {
   let json = """
-    {"inputSpace":"gaze-angles-v1","xCoefficients":[1,2,3,4,5,6],"yCoefficients":[6,5,4,3,2,1]}
+    {"inputSpace":"gaze-angles-v1","xCoefficients":[1,2,3],"yCoefficients":[3,2,1]}
     """
   #expect(throws: DecodingError.self) {
     try JSONDecoder().decode(CalibrationMap.self, from: Data(json.utf8))
@@ -152,7 +166,7 @@ private struct SeededPerturbation {
 @Test func wrongCoefficientCountFailsToDecode() {
   let json = """
     {"inputSpace":"normalized-screen-point-v1","xCoefficients":[1,2,3,4,5],
-    "yCoefficients":[6,5,4,3,2,1]}
+    "yCoefficients":[3,2,1]}
     """
   #expect(throws: DecodingError.self) {
     try JSONDecoder().decode(CalibrationMap.self, from: Data(json.utf8))

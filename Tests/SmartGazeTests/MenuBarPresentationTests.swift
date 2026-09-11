@@ -178,3 +178,11 @@ import Testing
     camera: .live, calibrationNeeded: false, isCaptureBusy: true, modelsMissing: true)
   #expect(state == .captureBusy)
 }
+
+@Test func aCalibratedLiveCameraStillOffersRecalibration() {
+  // Once a map exists the state is cameraLive, and the menu must not lose the
+  // only path back to calibration. The first live run saved an unusable map and
+  // the action vanished with it.
+  let state = MenuBarState.presenting(camera: .live, calibrationNeeded: false, isCaptureBusy: false)
+  #expect(state == .cameraLive)
+}

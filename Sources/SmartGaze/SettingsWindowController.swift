@@ -20,7 +20,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
   /// prompt calls it too, so a completed run always lands the same way.
   func startCalibration() {
     guard calibrationWindowController == nil else { return }
-    let bounds = CalibrationWindowController.unionOfActiveDisplays()
+    // One display, not the union. Looking between monitors is a head turn of
+    // tens of degrees, outside anything the model was trained on, and the first
+    // live run's cross-display row was the one with no horizontal signal.
+    let bounds = CGDisplayBounds(CGMainDisplayID())
     let coordinator = CalibrationCoordinator(bounds: bounds)
     let controller = CalibrationWindowController(coordinator: coordinator)
     calibrationWindowController = controller
