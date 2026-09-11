@@ -152,7 +152,7 @@ final class CalibrationCoordinator {
       case .completed(let result):
         LaunchDiagnostics.record(
           .calibration,
-          "completed hErr=\(result.horizontalErrorPoints) vErr=\(result.verticalErrorPoints) x=\(result.map.xCoefficients) y=\(result.map.yCoefficients)"
+          "completed hErr=\(result.horizontalErrorPoints) vErr=\(result.verticalErrorPoints) dispersion=\(result.observedDispersionPoints) bursts=\(result.acceptedBurstCount) x=\(result.map.xCoefficients) y=\(result.map.yCoefficients)"
         )
         progress.completed = progress.total
         finish(with: result)
