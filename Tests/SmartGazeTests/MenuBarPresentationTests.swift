@@ -141,3 +141,21 @@ import Testing
   #expect(MenuBarState.captureBusy.symbolName == "camera.viewfinder")
   #expect(MenuBarState.captureBusy.accessibilityDescription == "SmartGaze is capturing")
 }
+
+@Test func everyStateHasAMenuStatusThatDoesNotRepeatTheAppName() {
+  let states: [MenuBarState] = [
+    .off, .waitingForPermission, .permissionDenied, .starting, .timedOut, .cameraLive,
+    .uncalibrated, .accessibilityDegraded, .captureBusy,
+  ]
+  for state in states {
+    #expect(!state.menuStatus.isEmpty)
+    #expect(!state.menuStatus.contains("SmartGaze"))
+  }
+}
+
+@Test func theStatesThatCanBlockAUserSayWhatIsWrong() {
+  #expect(MenuBarState.waitingForPermission.menuStatus == "Waiting for camera permission")
+  #expect(MenuBarState.permissionDenied.menuStatus == "Camera access denied")
+  #expect(MenuBarState.timedOut.menuStatus == "The camera did not start")
+  #expect(MenuBarState.uncalibrated.menuStatus == "Calibration needed")
+}
