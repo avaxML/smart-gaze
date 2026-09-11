@@ -24,8 +24,9 @@ public enum TrackingPreviewIssue: Equatable, Sendable {
 
 /// A pure reducer over the real `FixationDetector` and `TriggerMachine`.
 ///
-/// It owns no camera, network or timers. A rejected or lost sample always
-/// clears the detector and the machine's arming so no stale gaze can fire.
+/// It owns no camera, network or timers. A lost face or a non-finite sample
+/// clears the detector and the machine's arming so no stale gaze can fire;
+/// an out-of-bounds sample clears only the detector and clamps to the edge.
 public struct TrackingPreview: Sendable {
   public let mode: ActivationMode
   public let bounds: CGRect
@@ -119,9 +120,23 @@ public struct TrackingPreview: Sendable {
       return clearTracking(at: time)
     }
     guard bounds.contains(point) else {
+      // The map extrapolates past the display edges, and live traces put one
+      // sample in seven below the bottom edge while the user read the lower
+      // half. Treating that as a lost face dropped the modifier's arming
+      // mid-hold, so releases fired almost never. The gaze is real and near
+      // an edge: keep the arming alive on the clamped point, and only drop
+      // the fixation cluster so nothing dwells off screen.
       lastIssue = .outOfBoundsSample(point, timestamp: time)
       rejectedSampleCount += 1
-      return clearTracking(at: time)
+      detector.reset()
+      currentFixation = nil
+      dispersion = 0
+      let clamped = CGPoint(
+        x: min(max(point.x, bounds.minX), bounds.maxX),
+        y: min(max(point.y, bounds.minY), bounds.maxY))
+      isTracking = true
+      lastGazePoint = clamped
+      return apply(machine.handle(.gaze(clamped, time)))
     }
 
     lastIssue = nil

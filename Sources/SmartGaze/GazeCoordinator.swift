@@ -151,7 +151,8 @@ actor GazeCoordinator {
         LaunchDiagnostics.record(
           .gaze,
           "t=\(timestamp) raw=(\(projected.x),\(projected.y)) corrected=(\(screenPoint.x),\(screenPoint.y)) "
-            + "filtered=(\(filtered.x),\(filtered.y)) origin=(\(estimate.faceOriginCentimeters.x),\(estimate.faceOriginCentimeters.y),\(estimate.faceOriginCentimeters.z))"
+            + "filtered=(\(filtered.x),\(filtered.y)) origin=(\(estimate.faceOriginCentimeters.x),\(estimate.faceOriginCentimeters.y),\(estimate.faceOriginCentimeters.z)) "
+            + "yaw=\(estimate.headYawRadians) pitch=\(estimate.headPitchRadians)"
         )
       }
       await handleGazeSample(filtered, at: timestamp)
