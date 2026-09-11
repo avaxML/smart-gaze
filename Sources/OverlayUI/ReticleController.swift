@@ -38,7 +38,7 @@ public final class ReticleController {
         || abs(frame.minY - current.minY) > Self.deadBandPoints || frame.size != current.size
     else { return }
     NSAnimationContext.runAnimationGroup { context in
-      context.duration = 0.08
+      context.duration = 0.12
       context.allowsImplicitAnimation = true
       panel.animator().setFrame(frame, display: true)
     }

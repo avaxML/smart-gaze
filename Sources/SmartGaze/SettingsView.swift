@@ -74,6 +74,26 @@ private struct GeneralSettingsView: View {
       }
 
       Section {
+        VStack(alignment: .leading, spacing: 4) {
+          Text("Smoothing")
+          Slider(value: model.gazeSmoothingBinding(), in: GazeSmoothing.range) {
+            Text("Smoothing")
+          } minimumValueLabel: {
+            Text("Responsive").font(.caption).foregroundStyle(.secondary)
+          } maximumValueLabel: {
+            Text("Calm").font(.caption).foregroundStyle(.secondary)
+          }
+          .labelsHidden()
+        }
+      } header: {
+        Text("Tracking")
+      } footer: {
+        Text(
+          "How steadily the on-screen outline follows your gaze. Calm removes almost all jitter but takes a moment longer to catch up after you look somewhere new."
+        )
+      }
+
+      Section {
         boundedRow(
           "Dwell time", value: model.dwellSecondsBinding(), range: SettingsRange.dwellSeconds,
           step: 0.1, unit: "s", fractionDigits: 1)

@@ -51,6 +51,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     camera.onError = { [weak self] error in self?.presentCameraError(error) }
     settingsModel.onCalibrationChanged = { [weak self] in self?.calibrationDidChange() }
+    settingsModel.onGazeSmoothingChanged = { [weak self] level in
+      guard let coordinator = self?.coordinator else { return }
+      Task { await coordinator.updateSmoothing(level: level) }
+    }
     camera.onFrame = { [weak self] frame in self?.handleFrame(frame) }
     camera.onObservation = { [weak self] observation in self?.handleObservation(observation) }
     camera.onFocalLength = { [weak self] pixels in

@@ -31,6 +31,8 @@ public struct ProviderSettings: Codable, Equatable, Sendable {
 public struct Settings: Codable, Equatable, Sendable {
   public var dwellSeconds: TimeInterval
   public var dispersionThreshold: Double
+  /// 0 responsive to 1 calm; see `GazeSmoothing`.
+  public var gazeSmoothing: Double
   public var activationMode: ActivationMode
   public var modifierKey: ModifierKey
   public var bubbleWidth: Double
@@ -46,6 +48,7 @@ public struct Settings: Codable, Equatable, Sendable {
   private enum CodingKeys: String, CodingKey {
     case dwellSeconds
     case dispersionThreshold
+    case gazeSmoothing
     case activationMode
     case modifierKey
     case bubbleWidth
@@ -63,6 +66,8 @@ public struct Settings: Codable, Equatable, Sendable {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     dwellSeconds = try container.decode(TimeInterval.self, forKey: .dwellSeconds)
     dispersionThreshold = try container.decode(Double.self, forKey: .dispersionThreshold)
+    gazeSmoothing =
+      (try? container.decode(Double.self, forKey: .gazeSmoothing)) ?? Settings.defaultGazeSmoothing
     activationMode = try container.decode(ActivationMode.self, forKey: .activationMode)
     modifierKey = try container.decode(ModifierKey.self, forKey: .modifierKey)
     bubbleWidth = try container.decode(Double.self, forKey: .bubbleWidth)
@@ -83,6 +88,7 @@ public struct Settings: Codable, Equatable, Sendable {
   public init(
     dwellSeconds: TimeInterval,
     dispersionThreshold: Double,
+    gazeSmoothing: Double = Settings.defaultGazeSmoothing,
     activationMode: ActivationMode,
     modifierKey: ModifierKey,
     bubbleWidth: Double,
@@ -97,6 +103,7 @@ public struct Settings: Codable, Equatable, Sendable {
   ) {
     self.dwellSeconds = dwellSeconds
     self.dispersionThreshold = dispersionThreshold
+    self.gazeSmoothing = gazeSmoothing
     self.activationMode = activationMode
     self.modifierKey = modifierKey
     self.bubbleWidth = bubbleWidth
@@ -109,6 +116,10 @@ public struct Settings: Codable, Equatable, Sendable {
     self.calibratedBounds = calibratedBounds
     self.headTranslationCorrection = headTranslationCorrection
   }
+
+  /// Calm end of the range by default: the user asked for smooth motion and
+  /// accepted the lag, about a third of a second to settle after a saccade.
+  public static let defaultGazeSmoothing = 0.75
 
   public static let `default` = Settings(
     dwellSeconds: 1.2,
@@ -154,6 +165,8 @@ public struct Settings: Codable, Equatable, Sendable {
     copy.dispersionThreshold = SettingsRange.clampFinite(
       dispersionThreshold, to: SettingsRange.dispersionThreshold,
       fallback: Settings.default.dispersionThreshold)
+    copy.gazeSmoothing = SettingsRange.clampFinite(
+      gazeSmoothing, to: GazeSmoothing.range, fallback: Settings.defaultGazeSmoothing)
     copy.bubbleWidth = SettingsRange.clampFinite(
       bubbleWidth, to: SettingsRange.bubbleWidth, fallback: Settings.default.bubbleWidth)
     copy.bubbleMaxHeight = SettingsRange.clampFinite(

@@ -190,6 +190,20 @@ final class SettingsModel: ObservableObject {
     return lowered == "localhost" || lowered == "127.0.0.1" || lowered == "::1"
   }
 
+  var onGazeSmoothingChanged: ((Double) -> Void)?
+
+  func gazeSmoothingBinding() -> Binding<Double> {
+    Binding(
+      get: { self.settings.gazeSmoothing },
+      set: {
+        let safe = $0.isFinite ? $0 : self.settings.gazeSmoothing
+        self.settings.gazeSmoothing = SettingsRange.clamp(safe, to: GazeSmoothing.range)
+        self.persist()
+        self.onGazeSmoothingChanged?(self.settings.gazeSmoothing)
+      }
+    )
+  }
+
   func dwellSecondsBinding() -> Binding<Double> {
     Binding(
       get: { self.settings.dwellSeconds },

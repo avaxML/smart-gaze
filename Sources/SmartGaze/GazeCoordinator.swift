@@ -35,17 +35,10 @@ import ScreenCapture
 /// right before a `BubblePresenting` call.
 actor GazeCoordinator {
   private var tracking: TrackingPreview
-  /// Tuned on a 30 s live trace of this pipeline in screen points, not on
-  /// the paper's normalised defaults. The map's gain is about 1900 pt per
-  /// unit, so the stock beta of 0.007 opened the cutoff to several hertz on
-  /// ordinary jitter and the filter passed everything through. The fixation
-  /// noise is broadband (about 80 percent of the variance above 1 Hz), so
-  /// what sets the residual is beta and the derivative cutoff, which decide
-  /// how easily a one-frame spike opens the filter, not minCutoff. Replaying
-  /// the trace: per-frame twitch while holding a spot fell from 28 pt median
-  /// (p90 85) to 6 pt (p90 19) with the 90 percent step response in the same
-  /// 240 ms bucket as before.
-  private var gazeFilter = OneEuroPointFilter(minCutoff: 0.2, beta: 0.0015, derivativeCutoff: 0.5)
+  /// Parameters come from `GazeSmoothing`, tuned on a 30 s live trace in
+  /// screen points rather than the paper's normalised defaults, whose beta of
+  /// 0.007 let ordinary jitter open the cutoff to several hertz.
+  private var gazeFilter: OneEuroPointFilter
   private var reportedSessionOrigin = false
   private var traceSamplesLeft =
     ProcessInfo.processInfo.environment["SMART_GAZE_TRACE_GAZE"] == nil ? 0 : 900
@@ -89,6 +82,7 @@ actor GazeCoordinator {
       dwellWindow: settings.dwellSeconds,
       dispersionThreshold: settings.dispersionThreshold)
     self.calibration = settings.calibrationMap
+    self.gazeFilter = OneEuroPointFilter(smoothing: settings.gazeSmoothing)
     self.headTranslation = settings.headTranslationCorrection
     self.gazePipeline = gazePipeline
     self.capturer = capturer
@@ -118,6 +112,10 @@ actor GazeCoordinator {
       self?.bubble.onDismiss = nil
       self?.bubble.dismiss()
     }
+  }
+
+  func updateSmoothing(level: Double) {
+    gazeFilter = OneEuroPointFilter(smoothing: level)
   }
 
   func updateVerticalFocalLength(pixels: Double) async {
