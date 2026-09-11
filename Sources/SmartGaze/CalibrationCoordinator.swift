@@ -30,8 +30,8 @@ final class CalibrationCoordinator {
   private let bounds: CGRect
   private let makePipeline: () throws -> GazePipeline
   private let camera: CameraController
-  private let settleDuration: Duration
-  private let burstDuration: Duration
+  let settleDuration: Duration
+  let burstDuration: Duration
   private let dispersionThreshold: Double
   private let maxErrorPoints: Double
 
@@ -39,6 +39,9 @@ final class CalibrationCoordinator {
   private var run: CalibrationRun?
   private var runTask: Task<Void, Never>?
   private var bufferedGaze: [NormalizedGazePoint] = []
+  private var frameCount = 0
+  private var gazeCount = 0
+  private var gazeErrorCount = 0
   private var latestDistanceCentimeters: Double?
 
   init(
@@ -46,12 +49,16 @@ final class CalibrationCoordinator {
     makePipeline: @escaping () throws -> GazePipeline = {
       try GazePipeline(
         faceMeshModelURL: ModelLocator.faceMeshModelURL(),
-        blazeGazeModelURL: ModelLocator.blazeGazeModelURL())
+        blazeGazeModelURL: ModelLocator.blazeGazeModelURL(),
+        verticalFieldOfViewDegrees: CameraGeometry.builtInVerticalFieldOfViewDegrees)
     },
     camera: CameraController = CameraController(),
     settleDuration: Duration = .milliseconds(700),
     burstDuration: Duration = .milliseconds(500),
-    dispersionThreshold: Double = 0.08,
+    // Measured on the first live run: held-gaze bursts spread 0.11 to 0.22
+    // normalized, and the saccade to find a new dot spread 0.57. The gate must
+    // sit between those. 0.08 rejected every real fixation and retried forever.
+    dispersionThreshold: Double = 0.25,
     maxErrorPoints: Double = 120
   ) {
     self.bounds = bounds
@@ -110,6 +117,7 @@ final class CalibrationCoordinator {
       guard var currentRun = run, let target = currentRun.currentTargetScreenPoint else { break }
 
       phase = .settling(target: target)
+      LaunchDiagnostics.record(.calibration, "settling frames=\(frameCount) gaze=\(gazeCount)")
       try? await Task.sleep(for: settleDuration)
       if Task.isCancelled { return }
 
@@ -119,19 +127,33 @@ final class CalibrationCoordinator {
       if Task.isCancelled { return }
 
       let samples = bufferedGaze
+      LaunchDiagnostics.record(
+        .calibration, "burst samples=\(samples.count) frames=\(frameCount) gaze=\(gazeCount)")
       if let latestDistanceCentimeters {
         currentRun.recordDistance(latestDistanceCentimeters)
       }
       let outcome = currentRun.submitBurst(samples)
+      if !samples.isEmpty {
+        let cx = samples.map(\.x).reduce(0, +) / Double(samples.count)
+        let cy = samples.map(\.y).reduce(0, +) / Double(samples.count)
+        LaunchDiagnostics.record(
+          .calibration,
+          "sample target=(\(target.x),\(target.y)) gaze=(\(cx),\(cy)) n=\(samples.count)")
+      }
       run = currentRun
 
       switch outcome {
-      case .retryTarget:
+      case .retryTarget(let dispersion):
+        LaunchDiagnostics.record(.calibration, "retry dispersion=\(dispersion)")
         phase = .retrying(target: target)
         try? await Task.sleep(for: .milliseconds(400))
       case .advancedToNextFitTarget, .advancedToNextValidationTarget:
         progress.completed += 1
       case .completed(let result):
+        LaunchDiagnostics.record(
+          .calibration,
+          "completed hErr=\(result.horizontalErrorPoints) vErr=\(result.verticalErrorPoints) x=\(result.map.xCoefficients) y=\(result.map.yCoefficients)"
+        )
         progress.completed = progress.total
         finish(with: result)
         return
@@ -160,12 +182,20 @@ final class CalibrationCoordinator {
 
   private func handleFrame(_ frame: CameraFrame) {
     guard let pipeline else { return }
+    frameCount += 1
     Task { [weak self] in
-      guard let self, let estimate = try? await pipeline.gazePoint(from: frame.pixelBuffer) else {
-        return
+      guard let self else { return }
+      do {
+        let estimate = try await pipeline.gazePoint(from: frame.pixelBuffer)
+        self.gazeCount += 1
+        self.bufferedGaze.append(estimate.gaze)
+        self.latestDistanceCentimeters = estimate.faceDistanceCentimeters
+      } catch {
+        self.gazeErrorCount += 1
+        if self.gazeErrorCount <= 5 {
+          LaunchDiagnostics.record(.calibration, "gaze error \(self.gazeErrorCount): \(error)")
+        }
       }
-      self.bufferedGaze.append(estimate.gaze)
-      self.latestDistanceCentimeters = estimate.faceDistanceCentimeters
     }
   }
 }

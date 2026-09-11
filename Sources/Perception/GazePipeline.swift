@@ -40,15 +40,30 @@ public actor GazePipeline {
   private let faceMesh: FaceMeshEstimator
   private let blazeGaze: BlazeGazeEstimator
   private var verticalFocalLengthPixels: Double?
+  private var verticalFieldOfViewOverrideDegrees: Double?
 
   public init(
     faceMeshModelURL: URL,
     blazeGazeModelURL: URL,
     computeUnits: MLComputeUnits = .all,
-    verticalFocalLengthPixels: Double? = nil
+    verticalFocalLengthPixels: Double? = nil,
+    verticalFieldOfViewDegrees: Double? = nil
   ) throws {
     self.faceMesh = try FaceMeshEstimator(modelURL: faceMeshModelURL, computeUnits: computeUnits)
     self.blazeGaze = try BlazeGazeEstimator(modelURL: blazeGazeModelURL, computeUnits: computeUnits)
+    // SMART_GAZE_VERTICAL_FOV_DEGREES lets the depth scale be corrected for a
+    // camera whose field of view macOS will not report. The first live run
+    // recorded 27.8 cm at the 60 degree default against a real distance near
+    // 55 cm, which halves the model's horizontal sensitivity.
+    if let override = ProcessInfo.processInfo.environment["SMART_GAZE_VERTICAL_FOV_DEGREES"],
+      let degrees = Double(override), degrees > 1, degrees < 179
+    {
+      self.verticalFieldOfViewOverrideDegrees = degrees
+    } else if let verticalFieldOfViewDegrees, verticalFieldOfViewDegrees > 1,
+      verticalFieldOfViewDegrees < 179
+    {
+      self.verticalFieldOfViewOverrideDegrees = verticalFieldOfViewDegrees
+    }
     self.verticalFocalLengthPixels = verticalFocalLengthPixels
   }
 
@@ -57,6 +72,12 @@ public actor GazePipeline {
   /// first frame has arrived and is not available at `init` time. A malformed
   /// reading is ignored, leaving the pipeline on the assumed field of view
   /// `metricFaceOrigin` falls back to.
+  private func effectiveVerticalFocalLengthPixels(frameHeight: CGFloat) -> Double? {
+    if let verticalFocalLengthPixels { return verticalFocalLengthPixels }
+    guard let degrees = verticalFieldOfViewOverrideDegrees else { return nil }
+    return Double(frameHeight) / (2 * tan(degrees / 2 * .pi / 180))
+  }
+
   public func updateVerticalFocalLength(pixels: Double) {
     guard pixels.isFinite, pixels > 0 else { return }
     verticalFocalLengthPixels = pixels
@@ -98,7 +119,7 @@ public actor GazePipeline {
     let headPose = try headPoseInputs(
       landmarks: fullFrame.pixelSpace,
       imageSize: SIMD2(Double(frameSize.width), Double(frameSize.height)),
-      verticalFocalLengthPixels: verticalFocalLengthPixels)
+      verticalFocalLengthPixels: effectiveVerticalFocalLengthPixels(frameHeight: frameSize.height))
 
     let blazeInput = try BlazeGazeInput(
       eyeBandRGB: eyeBand,

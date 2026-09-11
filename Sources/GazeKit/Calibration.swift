@@ -22,7 +22,7 @@ public struct CalibrationSample: Equatable, Sendable {
 }
 
 public struct CalibrationMap: Equatable, Sendable, Codable {
-  public static let inputSpaceMarker = "normalized-screen-point-v1"
+  public static let inputSpaceMarker = "normalized-screen-point-affine-v2"
 
   public let xCoefficients: [Double]
   public let yCoefficients: [Double]
@@ -55,13 +55,13 @@ public struct CalibrationMap: Equatable, Sendable, Codable {
 
     let xCoefficients = try container.decode([Double].self, forKey: .xCoefficients)
     let yCoefficients = try container.decode([Double].self, forKey: .yCoefficients)
-    guard xCoefficients.count == 6, yCoefficients.count == 6,
+    guard xCoefficients.count == 3, yCoefficients.count == 3,
       xCoefficients.allSatisfy({ $0.isFinite }),
       yCoefficients.allSatisfy({ $0.isFinite })
     else {
       throw DecodingError.dataCorruptedError(
         forKey: .xCoefficients, in: container,
-        debugDescription: "Calibration needs six finite coefficients per axis")
+        debugDescription: "Calibration needs three finite coefficients per axis")
     }
 
     self.xCoefficients = xCoefficients
@@ -82,8 +82,8 @@ public enum CalibrationError: Error, Equatable {
 }
 
 public func solveCalibration(_ samples: [CalibrationSample]) throws -> CalibrationMap {
-  guard samples.count >= 6 else {
-    throw CalibrationError.insufficientSamples(got: samples.count, need: 6)
+  guard samples.count >= 3 else {
+    throw CalibrationError.insufficientSamples(got: samples.count, need: 3)
   }
 
   let xCoefficients = try solveAxis(samples, basis: xBasis, value: { Double($0.screenPoint.x) })
@@ -91,16 +91,16 @@ public func solveCalibration(_ samples: [CalibrationSample]) throws -> Calibrati
   return CalibrationMap(xCoefficients: xCoefficients, yCoefficients: yCoefficients)
 }
 
+// The model already emits screen-normalized coordinates, so calibration is a
+// small affine correction, which is what upstream applies. A nine-point quadratic
+// over this input is ill-conditioned: the first live run produced coefficients in
+// the millions and a 0.01 change in gaze moved the screen point by 32,819 points.
 private func xBasis(_ gaze: NormalizedGazePoint) -> [Double] {
-  let x = gaze.x
-  let y = gaze.y
-  return [1, x, y, x * x, x * y, y * y]
+  [1, gaze.x, gaze.y]
 }
 
 private func yBasis(_ gaze: NormalizedGazePoint) -> [Double] {
-  let x = gaze.x
-  let y = gaze.y
-  return [1, y, x, y * y, y * x, x * x]
+  [1, gaze.x, gaze.y]
 }
 
 private func dot(_ coefficients: [Double], _ row: [Double]) -> Double {
@@ -116,7 +116,7 @@ private func solveAxis(
   basis: (NormalizedGazePoint) -> [Double],
   value: (CalibrationSample) -> Double
 ) throws -> [Double] {
-  let count = 6
+  let count = 3
   var matrix = [[Double]](repeating: [Double](repeating: 0, count: count), count: count)
   var rhs = [Double](repeating: 0, count: count)
 

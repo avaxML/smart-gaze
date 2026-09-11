@@ -86,7 +86,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     do {
       pipeline = try GazePipeline(
         faceMeshModelURL: ModelLocator.faceMeshModelURL(),
-        blazeGazeModelURL: ModelLocator.blazeGazeModelURL())
+        blazeGazeModelURL: ModelLocator.blazeGazeModelURL(),
+        verticalFieldOfViewDegrees: CameraGeometry.builtInVerticalFieldOfViewDegrees)
       modelsMissing = false
       LaunchDiagnostics.record(.pipelineReady, "ok")
     } catch {
@@ -258,6 +259,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     case .modelsMissing:
       actionItem.title = "Open Settings…"
       actionItem.action = #selector(openSettings)
+      actionItem.isHidden = false
+    case .cameraLive:
+      actionItem.title = "Recalibrate…"
+      actionItem.action = #selector(calibrateNow)
       actionItem.isHidden = false
     case .accessibilityDegraded:
       actionItem.title = "Open Accessibility Settings…"
