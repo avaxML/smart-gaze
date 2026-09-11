@@ -25,7 +25,7 @@ final class CameraController {
   var onError: ((Error) -> Void)?
   var onObservation: ((FaceObservation?) -> Void)?
   var onFrame: ((CameraFrame) -> Void)?
-  var onFieldOfView: ((Double) -> Void)?
+  var onFocalLength: ((Double?) -> Void)?
 
   private let makeObserver: () -> any FaceObserving
   private let sleep: @Sendable (Duration) async throws -> Void
@@ -34,6 +34,7 @@ final class CameraController {
   private var frameDrain: Task<Void, Never>?
   private var timeoutTask: Task<Void, Never>?
   private var generation = 0
+  private var focalLengthReported = false
 
   init(
     makeObserver: @escaping () -> any FaceObserving = { WebcamFaceObserver() },
@@ -46,6 +47,7 @@ final class CameraController {
   func start() async {
     generation += 1
     let token = generation
+    focalLengthReported = false
 
     stopCurrentObserver()
 
@@ -79,9 +81,6 @@ final class CameraController {
       return
     }
     update(state: .starting)
-    if let fieldOfView = (fresh as? any FieldOfViewProviding)?.verticalFieldOfViewDegrees {
-      onFieldOfView?(fieldOfView)
-    }
     beginDraining(fresh, token: token)
     scheduleStartupTimeout(token: token)
   }
@@ -114,9 +113,22 @@ final class CameraController {
       for await frame in frameSource.frames {
         if Task.isCancelled { return }
         guard let self, token == self.generation else { return }
+        self.reportFocalLengthOnce()
         self.onFrame?(frame)
       }
     }
+  }
+
+  /// The intrinsic matrix, if the camera attaches one, only arrives with a
+  /// frame, so this cannot run at `start()` time like the rest of session
+  /// setup. Reports exactly once per session, present or absent, since the
+  /// answer does not change frame to frame for a fixed capture format.
+  private func reportFocalLengthOnce() {
+    guard !focalLengthReported, let provider = observer as? any FocalLengthProviding else {
+      return
+    }
+    focalLengthReported = true
+    onFocalLength?(provider.verticalFocalLengthPixels)
   }
 
   /// A face-observation arriving proves the session is actually delivering

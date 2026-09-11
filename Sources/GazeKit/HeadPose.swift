@@ -88,6 +88,26 @@ public struct MetricFaceOrigin: Equatable, Sendable {
   public let centimetres: SIMD3<Double>
 }
 
+/// The vertical field of view assumed when the camera has not reported a
+/// measured focal length. Chosen as a plausible webcam lens angle, not a
+/// measurement; every depth this fallback produces carries that error.
+public let assumedVerticalFieldOfViewDegrees = 60.0
+
+/// The focal length `metricFaceOrigin` actually needs, in pixels of vertical
+/// extent. A caller that read one from `kCMSampleBufferAttachmentKey_CameraIntrinsicMatrix`
+/// passes it here directly. `nil`, zero, negative or non-finite falls back to
+/// `assumedVerticalFieldOfViewDegrees` converted against the frame's own height,
+/// which is exactly today's behaviour.
+func resolvedVerticalFocalLengthPixels(
+  measured: Double?, imageHeight: Double
+) -> Double {
+  if let measured, measured.isFinite, measured > 0 {
+    return measured
+  }
+  let halfFieldOfView = assumedVerticalFieldOfViewDegrees / 2 * .pi / 180
+  return imageHeight / (2 * tan(halfFieldOfView))
+}
+
 /// Approximates the metric face origin by scaling the pixel IPD to an assumed
 /// interpupillary distance. This is not a faithful reconstruction because the
 /// upstream method needs iris landmarks 468 to 477, which the base 468-point
@@ -98,7 +118,7 @@ public func metricFaceOrigin(
   rotation: RigidRotation,
   imageSize: SIMD2<Double>,
   assumedInterpupillaryCentimetres: Double = 6.3,
-  verticalFieldOfViewDegrees: Double = 60
+  verticalFocalLengthPixels: Double? = nil
 ) throws -> MetricFaceOrigin {
   let leftMid = (leftEyeCorners.0 + leftEyeCorners.1) / 2
   let rightMid = (rightEyeCorners.0 + rightEyeCorners.1) / 2
@@ -106,8 +126,8 @@ public func metricFaceOrigin(
   let imageIPD = pixelDistance(rightMid - leftMid)
   guard imageIPD > 1e-9 else { throw HeadPoseError.degenerateConfiguration }
 
-  let halfFieldOfView = verticalFieldOfViewDegrees / 2 * .pi / 180
-  let focalPx = imageSize.y / (2 * tan(halfFieldOfView))
+  let focalPx = resolvedVerticalFocalLengthPixels(
+    measured: verticalFocalLengthPixels, imageHeight: imageSize.y)
 
   let r = rotation.matrix
   let theta = atan2(r.0.z, r.2.z)

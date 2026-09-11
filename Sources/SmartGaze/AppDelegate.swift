@@ -45,8 +45,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     camera.onError = { [weak self] error in self?.presentCameraError(error) }
     settingsModel.onCalibrationChanged = { [weak self] in self?.refreshMenu() }
     camera.onFrame = { [weak self] frame in self?.handleFrame(frame) }
-    camera.onFieldOfView = { [weak self] degrees in
-      Task { await self?.coordinator?.updateVerticalFieldOfView(degrees: degrees) }
+    camera.onFocalLength = { [weak self] pixels in
+      let detail = pixels.map { "present \($0)" } ?? "absent"
+      LaunchDiagnostics.record(.intrinsicMatrix, detail)
+      guard let pixels else { return }
+      Task { await self?.coordinator?.updateVerticalFocalLength(pixels: pixels) }
     }
     refreshMenu()
     LaunchDiagnostics.record(.launchCompleted)

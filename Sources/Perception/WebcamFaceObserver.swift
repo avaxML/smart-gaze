@@ -5,6 +5,7 @@ import CoreVideo
 import Foundation
 import GazeKit
 import Vision
+import simd
 
 public enum PerceptionError: Error, Equatable, Sendable {
   case cameraAccessDenied
@@ -13,12 +14,13 @@ public enum PerceptionError: Error, Equatable, Sendable {
 }
 
 public final class WebcamFaceObserver: NSObject, FaceObserving, FrameProviding,
-  FieldOfViewProviding, @unchecked Sendable
+  FocalLengthProviding, @unchecked Sendable
 {
   public let faces: AsyncStream<FaceObservation?>
   public let frames: AsyncStream<CameraFrame>
-  public private(set) var verticalFieldOfViewDegrees: Double?
+  public private(set) var verticalFocalLengthPixels: Double?
 
+  private var checkedIntrinsics = false
   private let continuation: AsyncStream<FaceObservation?>.Continuation
   private let frameContinuation: AsyncStream<CameraFrame>.Continuation
   private let session = AVCaptureSession()
@@ -111,9 +113,6 @@ public final class WebcamFaceObserver: NSObject, FaceObserving, FrameProviding,
       throw PerceptionError.cannotConfigureSession
     }
     session.addInput(input)
-    verticalFieldOfViewDegrees = Self.verticalFieldOfViewDegrees(
-      horizontalDegrees: Self.horizontalFieldOfViewDegrees(for: device),
-      format: device.activeFormat)
 
     let output = AVCaptureVideoDataOutput()
     output.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
@@ -129,38 +128,30 @@ public final class WebcamFaceObserver: NSObject, FaceObserving, FrameProviding,
     session.startRunning()
   }
 
-  /// `AVCaptureDevice.Format.videoFieldOfView` reports the HORIZONTAL field of view in
-  /// degrees on iOS, but Apple marks it `API_UNAVAILABLE(macos)`, confirmed by a build
-  /// failure against the macOS 26 SDK when this was called directly. There is currently
-  /// no public AVFoundation replacement on macOS, so this always returns `nil` here.
-  /// `configureAndStart` still routes the (currently absent) reading through the same
-  /// derivation and validation `metricFaceOrigin`'s caller needs, so the day AVFoundation
-  /// exposes one on macOS, wiring it in is a one-line change at this call site.
-  private static func horizontalFieldOfViewDegrees(for device: AVCaptureDevice) -> Double? {
-    nil
-  }
-
-  /// Derives the vertical field of view from a horizontal reading and the active
-  /// format's frame aspect ratio, returned as a plain `Double` so `GazeKit` never has
-  /// to import AVFoundation to consume it.
+  /// `AVCaptureConnection.isCameraIntrinsicMatrixDeliveryEnabled`, the switch that
+  /// requests intrinsics, is `API_UNAVAILABLE(macos)`. But the attachment that
+  /// carries them, `kCMSampleBufferAttachmentKey_CameraIntrinsicMatrix`, has been
+  /// available on macOS since 10.13, so some devices (Continuity Camera and newer
+  /// built-ins, which already apply geometric distortion correction) attach it
+  /// unsolicited. Element `[1][1]` of the `matrix_float3x3` is the vertical focal
+  /// length in pixels, in the coordinate space of the buffer it arrived with.
   ///
-  /// Returns `nil` when there is no horizontal reading, or it is zero, negative, or at
-  /// least 180 degrees: values a real lens cannot produce, so the caller keeps its own
-  /// default rather than deriving an angle from a nonsensical one.
-  static func verticalFieldOfViewDegrees(
-    horizontalDegrees: Double?, format: AVCaptureDevice.Format
-  ) -> Double? {
-    guard let horizontalDegrees, horizontalDegrees > 0, horizontalDegrees < 180 else {
-      return nil
-    }
+  /// Returns `nil` when the attachment is absent, the wrong size, or the value it
+  /// carries is zero, negative or non-finite, so a malformed reading falls back
+  /// exactly like a device that never attaches one.
+  static func verticalFocalLengthPixels(from sampleBuffer: CMSampleBuffer) -> Double? {
+    guard
+      let attachment = CMGetAttachment(
+        sampleBuffer, key: kCMSampleBufferAttachmentKey_CameraIntrinsicMatrix,
+        attachmentModeOut: nil),
+      let data = attachment as? Data,
+      data.count == MemoryLayout<matrix_float3x3>.size
+    else { return nil }
 
-    let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
-    guard dimensions.width > 0, dimensions.height > 0 else { return nil }
-
-    let halfHorizontal = horizontalDegrees / 2 * .pi / 180
-    let aspect = Double(dimensions.height) / Double(dimensions.width)
-    let halfVertical = atan(tan(halfHorizontal) * aspect)
-    return halfVertical * 2 * 180 / .pi
+    let matrix = data.withUnsafeBytes { $0.loadUnaligned(as: matrix_float3x3.self) }
+    let vertical = Double(matrix[1][1])
+    guard vertical.isFinite, vertical > 0 else { return nil }
+    return vertical
   }
 }
 
@@ -172,6 +163,11 @@ extension WebcamFaceObserver: AVCaptureVideoDataOutputSampleBufferDelegate {
   ) {
     guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
     let timestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds
+
+    if !checkedIntrinsics {
+      checkedIntrinsics = true
+      verticalFocalLengthPixels = Self.verticalFocalLengthPixels(from: sampleBuffer)
+    }
 
     let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up, options: [:])
     do {

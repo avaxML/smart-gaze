@@ -192,16 +192,25 @@ private let imageSize = SIMD2<Double>(1920, 1080)
   }
 }
 
-@Test func nonsensicalFieldOfViewThrowsFaceNotInFrontOfCamera() {
+@Test func measuredFocalLengthScalesRecoveredDepth() throws {
   let landmarks = imageSpaceLandmarks(canonicalFrame: CanonicalFaceModel.vertices)
-  #expect {
-    _ = try headPoseInputs(
-      landmarks: landmarks,
-      imageSize: imageSize,
-      verticalFieldOfViewDegrees: 190
-    )
-  } throws: { error in
-    guard case FaceLandmarkError.faceNotInFrontOfCamera(let depth) = error else { return false }
-    return depth <= 0
+  let assumed = try headPoseInputs(landmarks: landmarks, imageSize: imageSize)
+  let measured = try headPoseInputs(
+    landmarks: landmarks, imageSize: imageSize, verticalFocalLengthPixels: 1920)
+
+  let assumedFocalPx = resolvedVerticalFocalLengthPixels(measured: nil, imageHeight: imageSize.y)
+  let expectedZ = assumed.faceOrigin.centimetres.z * 1920 / assumedFocalPx
+
+  #expect(abs(measured.faceOrigin.centimetres.z - expectedZ) <= 1e-9)
+}
+
+@Test func malformedFocalLengthFallsBackToTheAssumedFieldOfView() throws {
+  let landmarks = imageSpaceLandmarks(canonicalFrame: CanonicalFaceModel.vertices)
+  let assumed = try headPoseInputs(landmarks: landmarks, imageSize: imageSize)
+
+  for malformed: Double in [0, -935, .nan, .infinity] {
+    let fallback = try headPoseInputs(
+      landmarks: landmarks, imageSize: imageSize, verticalFocalLengthPixels: malformed)
+    #expect(fallback.faceOrigin.centimetres.z == assumed.faceOrigin.centimetres.z)
   }
 }
