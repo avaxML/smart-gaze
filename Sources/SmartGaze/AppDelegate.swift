@@ -26,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var coordinator: GazeCoordinator?
   private var modifierMonitor: ModifierMonitor?
   private var accessibilityDegraded = false
+  private var modelsMissing = false
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     NSApp.setActivationPolicy(.accessory)
@@ -86,8 +87,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       pipeline = try GazePipeline(
         faceMeshModelURL: ModelLocator.faceMeshModelURL(),
         blazeGazeModelURL: ModelLocator.blazeGazeModelURL())
+      modelsMissing = false
+      LaunchDiagnostics.record(.pipelineReady, "ok")
     } catch {
       pipeline = nil
+      modelsMissing = true
+      LaunchDiagnostics.record(.pipelineReady, "failed \(error)")
     }
 
     // Checked before the coordinator is built so its `TrackingPreview` is
@@ -222,7 +227,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       camera: camera.state,
       calibrationNeeded: !settingsModel.hasCalibration,
       isCaptureBusy: captureActivity.isBusy,
-      accessibilityDegraded: accessibilityDegraded)
+      accessibilityDegraded: accessibilityDegraded, modelsMissing: modelsMissing)
   }
 
   private func refreshMenu() {
@@ -249,6 +254,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     case .timedOut:
       actionItem.title = "Open Privacy Settings…"
       actionItem.action = #selector(openPrivacySettings)
+      actionItem.isHidden = false
+    case .modelsMissing:
+      actionItem.title = "Open Settings…"
+      actionItem.action = #selector(openSettings)
       actionItem.isHidden = false
     case .accessibilityDegraded:
       actionItem.title = "Open Accessibility Settings…"

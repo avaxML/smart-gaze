@@ -9,6 +9,7 @@ enum MenuBarState: Equatable, Sendable {
   case cameraLive
   case uncalibrated
   case accessibilityDegraded
+  case modelsMissing
   case captureBusy
 
   var symbolName: String {
@@ -21,6 +22,7 @@ enum MenuBarState: Equatable, Sendable {
     case .cameraLive: "video.fill"
     case .uncalibrated: "scope"
     case .accessibilityDegraded: "accessibility"
+    case .modelsMissing: "cube.transparent"
     case .captureBusy: "camera.viewfinder"
     }
   }
@@ -38,6 +40,7 @@ enum MenuBarState: Equatable, Sendable {
     case .cameraLive: "Tracking"
     case .uncalibrated: "Calibration needed"
     case .accessibilityDegraded: "Dwell mode, Accessibility not granted"
+    case .modelsMissing: "Gaze models not found"
     case .captureBusy: "Explaining what you looked at…"
     }
   }
@@ -52,6 +55,7 @@ enum MenuBarState: Equatable, Sendable {
     case .cameraLive: "SmartGaze camera is live"
     case .uncalibrated: "SmartGaze needs calibration"
     case .accessibilityDegraded: "SmartGaze is running in dwell mode"
+    case .modelsMissing: "SmartGaze cannot find its gaze models"
     case .captureBusy: "SmartGaze is capturing"
     }
   }
@@ -68,9 +72,13 @@ enum MenuBarState: Equatable, Sendable {
   /// thing to surface.
   static func presenting(
     camera: CameraController.State, calibrationNeeded: Bool, isCaptureBusy: Bool,
-    accessibilityDegraded: Bool = false
+    accessibilityDegraded: Bool = false, modelsMissing: Bool = false
   ) -> MenuBarState {
     if isCaptureBusy { return .captureBusy }
+    // Missing models outrank everything but an in-flight capture. A live camera
+    // with no model produces no gaze at all, and every other state would
+    // describe the app as healthier than it is.
+    if modelsMissing { return .modelsMissing }
     switch camera {
     case .off: return .off
     case .waitingForPermission: return .waitingForPermission

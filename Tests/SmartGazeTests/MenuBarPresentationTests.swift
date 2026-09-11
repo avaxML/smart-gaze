@@ -101,7 +101,7 @@ import Testing
 @Test func everyMenuStateHasADistinctSymbolAndDescription() {
   let allStates: [MenuBarState] = [
     .off, .waitingForPermission, .permissionDenied, .starting, .timedOut, .cameraLive,
-    .uncalibrated, .accessibilityDegraded, .captureBusy,
+    .uncalibrated, .accessibilityDegraded, .modelsMissing, .captureBusy,
   ]
   #expect(Set(allStates.map(\.symbolName)).count == allStates.count)
   #expect(Set(allStates.map(\.accessibilityDescription)).count == allStates.count)
@@ -158,4 +158,23 @@ import Testing
   #expect(MenuBarState.permissionDenied.menuStatus == "Camera access denied")
   #expect(MenuBarState.timedOut.menuStatus == "The camera did not start")
   #expect(MenuBarState.uncalibrated.menuStatus == "Calibration needed")
+}
+
+@Test func missingModelsOutrankALiveCamera() {
+  let state = MenuBarState.presenting(
+    camera: .live, calibrationNeeded: false, isCaptureBusy: false, modelsMissing: true)
+  #expect(state == .modelsMissing)
+  #expect(state.menuStatus == "Gaze models not found")
+}
+
+@Test func missingModelsOutrankAnOutstandingCalibration() {
+  let state = MenuBarState.presenting(
+    camera: .live, calibrationNeeded: true, isCaptureBusy: false, modelsMissing: true)
+  #expect(state == .modelsMissing)
+}
+
+@Test func anInFlightCaptureStillOutranksMissingModels() {
+  let state = MenuBarState.presenting(
+    camera: .live, calibrationNeeded: false, isCaptureBusy: true, modelsMissing: true)
+  #expect(state == .captureBusy)
 }

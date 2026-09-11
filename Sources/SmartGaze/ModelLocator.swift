@@ -9,15 +9,31 @@ import Foundation
 /// integration tests use let a developer point at a local checkout.
 enum ModelLocator {
   static func faceMeshModelURL() -> URL {
-    let path =
-      ProcessInfo.processInfo.environment["SMART_GAZE_FACE_MESH_MODEL_PATH"]
-      ?? "Models/face-mesh/face_mesh.mlmodelc"
-    return URL(fileURLWithPath: path)
+    resolve(
+      environmentKey: "SMART_GAZE_FACE_MESH_MODEL_PATH",
+      bundleRelativePath: "Models/face-mesh/face_mesh.mlmodelc")
   }
 
   static func blazeGazeModelURL() -> URL {
-    let path =
-      ProcessInfo.processInfo.environment["SMART_GAZE_MODEL_PATH"] ?? "Models/blazegaze.mlmodelc"
-    return URL(fileURLWithPath: path)
+    resolve(
+      environmentKey: "SMART_GAZE_MODEL_PATH",
+      bundleRelativePath: "Models/blazegaze.mlmodelc")
+  }
+
+  /// An explicit environment override wins, so a test or a developer can point
+  /// at any artifact. Otherwise the copy inside the bundle, which is what makes
+  /// a Finder launch work. The bare relative path is the last resort for
+  /// `swift run` from the repository root, where there is no bundle.
+  private static func resolve(environmentKey: String, bundleRelativePath: String) -> URL {
+    if let override = ProcessInfo.processInfo.environment[environmentKey] {
+      return URL(fileURLWithPath: override)
+    }
+    if let resources = Bundle.main.resourceURL {
+      let bundled = resources.appendingPathComponent(bundleRelativePath)
+      if FileManager.default.fileExists(atPath: bundled.path) {
+        return bundled
+      }
+    }
+    return URL(fileURLWithPath: bundleRelativePath)
   }
 }
