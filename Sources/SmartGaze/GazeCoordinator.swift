@@ -298,28 +298,44 @@ actor GazeCoordinator {
   /// requires. Falls back to the main display, clamped to its bounds, for a
   /// point that lands in no display's bounds (e.g. rounding at a seam) or
   /// when the active display list cannot be enumerated at all.
+  /// Maps a global point onto the display that contains it, in that display's
+  /// own coordinates. Split from the hardware query so the mapping can be
+  /// tested against displays this machine does not have; on a single display
+  /// at the origin, global and local coordinates are identical and the
+  /// arithmetic is untestable.
+  nonisolated static func displayLocalPoint(
+    for globalPoint: CGPoint, displays: [(id: CGDirectDisplayID, bounds: CGRect)],
+    fallback: (id: CGDirectDisplayID, bounds: CGRect)
+  ) -> (displayID: CGDirectDisplayID, localPoint: CGPoint) {
+    for display in displays where display.bounds.contains(globalPoint) {
+      return (
+        display.id,
+        CGPoint(
+          x: globalPoint.x - display.bounds.minX, y: globalPoint.y - display.bounds.minY)
+      )
+    }
+    let clamped = CGPoint(
+      x: min(max(globalPoint.x, fallback.bounds.minX), fallback.bounds.maxX),
+      y: min(max(globalPoint.y, fallback.bounds.minY), fallback.bounds.maxY))
+    return (
+      fallback.id,
+      CGPoint(x: clamped.x - fallback.bounds.minX, y: clamped.y - fallback.bounds.minY)
+    )
+  }
+
   nonisolated static func displayLocalPoint(for globalPoint: CGPoint) -> (
     displayID: CGDirectDisplayID, localPoint: CGPoint
   ) {
+    var displays: [(id: CGDirectDisplayID, bounds: CGRect)] = []
     var displayCount: UInt32 = 0
     if CGGetActiveDisplayList(0, nil, &displayCount) == .success, displayCount > 0 {
       var displayIDs = [CGDirectDisplayID](repeating: 0, count: Int(displayCount))
       if CGGetActiveDisplayList(displayCount, &displayIDs, &displayCount) == .success {
-        for displayID in displayIDs {
-          let bounds = CGDisplayBounds(displayID)
-          if bounds.contains(globalPoint) {
-            return (
-              displayID, CGPoint(x: globalPoint.x - bounds.minX, y: globalPoint.y - bounds.minY)
-            )
-          }
-        }
+        displays = displayIDs.map { ($0, CGDisplayBounds($0)) }
       }
     }
     let mainID = CGMainDisplayID()
-    let bounds = CGDisplayBounds(mainID)
-    let clamped = CGPoint(
-      x: min(max(globalPoint.x, bounds.minX), bounds.maxX),
-      y: min(max(globalPoint.y, bounds.minY), bounds.maxY))
-    return (mainID, CGPoint(x: clamped.x - bounds.minX, y: clamped.y - bounds.minY))
+    return displayLocalPoint(
+      for: globalPoint, displays: displays, fallback: (mainID, CGDisplayBounds(mainID)))
   }
 }
