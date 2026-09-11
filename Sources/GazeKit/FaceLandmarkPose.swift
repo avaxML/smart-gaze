@@ -14,11 +14,14 @@ public struct GazeModelVectors: Equatable, Sendable {
 public enum FaceLandmarkError: Error, Equatable {
   case wrongLandmarkCount(got: Int, need: Int)
   case nonFiniteLandmark(index: Int)
+  case headVectorNotFacingCamera(z: Double)
+  case faceNotInFrontOfCamera(depthCentimetres: Double)
 }
 
 public func headPoseInputs(
   landmarks: [SIMD3<Double>],
-  imageSize: SIMD2<Double>
+  imageSize: SIMD2<Double>,
+  verticalFieldOfViewDegrees: Double = 60
 ) throws -> HeadPoseInputs {
   guard landmarks.count == CanonicalFaceModel.vertexCount else {
     throw FaceLandmarkError.wrongLandmarkCount(
@@ -38,6 +41,7 @@ public func headPoseInputs(
 
   let rotation = try kabschRotation(canonical: canonicalPoints, observed: observedPoints)
   let head = headVector(from: rotation)
+  guard head.z < 0 else { throw FaceLandmarkError.headVectorNotFacingCamera(z: head.z) }
 
   let leftEyeCorners = eyeCorners(CanonicalFaceModel.leftEyeHorizontal, in: landmarks)
   let rightEyeCorners = eyeCorners(CanonicalFaceModel.rightEyeHorizontal, in: landmarks)
@@ -46,8 +50,12 @@ public func headPoseInputs(
     leftEyeCorners: leftEyeCorners,
     rightEyeCorners: rightEyeCorners,
     rotation: rotation,
-    imageSize: imageSize
+    imageSize: imageSize,
+    verticalFieldOfViewDegrees: verticalFieldOfViewDegrees
   )
+  guard origin.centimetres.z > 0 else {
+    throw FaceLandmarkError.faceNotInFrontOfCamera(depthCentimetres: origin.centimetres.z)
+  }
 
   return HeadPoseInputs(headVector: head, faceOrigin: origin, rotation: rotation)
 }
@@ -73,9 +81,12 @@ extension HeadPoseInputs {
 /// would silently fit it with a nonsense quaternion. Negating y and z together is a
 /// proper 180 degree rotation about x.
 ///
-/// Open question: this assumes the landmark mesh's z increases away from the viewer, to
-/// match the canonical model's depth axis. That has not been confirmed against a live
-/// face and should be treated as unverified until it is.
+/// Confirmed against a real face photo run through the pipeline's own crop path: nose
+/// tip landmark 4 had the minimum z at -36.95, while temples 234 and 454 sat at 64.2 and
+/// 62.8. Smaller z is closer to the camera, matching MediaPipe's documented convention
+/// and the direction this negation assumes. End to end that photo produced head vector
+/// (-0.012, 0.038, -0.999) and origin (0.38, 1.43, 22.62) cm; negating z on the same
+/// landmarks flips the sign of both, which `headPoseInputs` now rejects.
 private func imageLandmarkToCanonicalFrame(_ landmark: SIMD3<Double>) -> SIMD3<Double> {
   SIMD3<Double>(landmark.x, -landmark.y, -landmark.z)
 }

@@ -15,6 +15,7 @@ final class CameraController {
   var onError: ((Error) -> Void)?
   var onObservation: ((FaceObservation?) -> Void)?
   var onFrame: ((CameraFrame) -> Void)?
+  var onFieldOfView: ((Double) -> Void)?
 
   private let makeObserver: () -> any FaceObserving
   private var observer: (any FaceObserving)?
@@ -51,6 +52,9 @@ final class CameraController {
       return
     }
     update(state: .live)
+    if let fieldOfView = (fresh as? any FieldOfViewProviding)?.verticalFieldOfViewDegrees {
+      onFieldOfView?(fieldOfView)
+    }
     beginDraining(fresh, token: token)
   }
 
