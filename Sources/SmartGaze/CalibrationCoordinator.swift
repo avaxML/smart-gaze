@@ -44,6 +44,7 @@ final class CalibrationCoordinator {
   private var gazeErrorCount = 0
   private var latestDistanceCentimeters: Double?
   private var latestFaceOrigin: SIMD3<Double>?
+  private var latestHeadPose: (yaw: Double, pitch: Double)?
 
   init(
     bounds: CGRect,
@@ -137,7 +138,8 @@ final class CalibrationCoordinator {
         currentRun.recordFaceOrigin(latestFaceOrigin)
         LaunchDiagnostics.record(
           .calibration,
-          "origin cm=(\(latestFaceOrigin.x),\(latestFaceOrigin.y),\(latestFaceOrigin.z))")
+          "origin cm=(\(latestFaceOrigin.x),\(latestFaceOrigin.y),\(latestFaceOrigin.z)) "
+            + "yaw=\(latestHeadPose?.yaw ?? .nan) pitch=\(latestHeadPose?.pitch ?? .nan)")
       }
       let outcome = currentRun.submitBurst(samples)
       if !samples.isEmpty {
@@ -198,6 +200,7 @@ final class CalibrationCoordinator {
         self.bufferedGaze.append(estimate.gaze)
         self.latestDistanceCentimeters = estimate.faceDistanceCentimeters
         self.latestFaceOrigin = estimate.faceOriginCentimeters
+        self.latestHeadPose = (estimate.headYawRadians, estimate.headPitchRadians)
       } catch {
         self.gazeErrorCount += 1
         if self.gazeErrorCount <= 5 {

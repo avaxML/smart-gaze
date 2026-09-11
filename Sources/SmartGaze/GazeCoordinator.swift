@@ -36,12 +36,17 @@ import ScreenCapture
 actor GazeCoordinator {
   private var tracking: TrackingPreview
   /// Tuned on a 30 s live trace of this pipeline in screen points, not on
-  /// the paper's normalised defaults: the map's gain is about 1900 pt per
+  /// the paper's normalised defaults. The map's gain is about 1900 pt per
   /// unit, so the stock beta of 0.007 opened the cutoff to several hertz on
-  /// ordinary jitter and the filter passed everything through. Replaying the
-  /// trace: per-frame twitch while holding a spot fell from 27 pt (p90 82) to
-  /// 10 pt (p90 36) with the 90 percent step response unchanged at 107 ms.
-  private var gazeFilter = OneEuroPointFilter(minCutoff: 0.2, beta: 0.002)
+  /// ordinary jitter and the filter passed everything through. The fixation
+  /// noise is broadband (about 80 percent of the variance above 1 Hz), so
+  /// what sets the residual is beta and the derivative cutoff, which decide
+  /// how easily a one-frame spike opens the filter, not minCutoff. Replaying
+  /// the trace: per-frame twitch while holding a spot fell from 28 pt median
+  /// (p90 85) to 6 pt (p90 19) with the 90 percent step response in the same
+  /// 240 ms bucket as before.
+  private var gazeFilter = OneEuroPointFilter(minCutoff: 0.2, beta: 0.0015, derivativeCutoff: 0.5)
+  private var reportedSessionOrigin = false
   private var traceSamplesLeft =
     ProcessInfo.processInfo.environment["SMART_GAZE_TRACE_GAZE"] == nil ? 0 : 900
   private var faceLoss = FaceLossDebounce()
@@ -132,6 +137,15 @@ actor GazeCoordinator {
         headTranslation?.correct(projected, faceOriginCentimeters: estimate.faceOriginCentimeters)
         ?? projected
       let filtered = gazeFilter.apply(screenPoint, at: timestamp)
+      if !reportedSessionOrigin {
+        reportedSessionOrigin = true
+        let reference = headTranslation?.referenceOriginCentimeters
+        let offset = reference.map { estimate.faceOriginCentimeters - $0 }
+        LaunchDiagnostics.record(
+          .gaze,
+          "session origin=\(estimate.faceOriginCentimeters) reference=\(String(describing: reference)) "
+            + "offset cm=\(String(describing: offset))")
+      }
       if traceSamplesLeft > 0 {
         traceSamplesLeft -= 1
         LaunchDiagnostics.record(
