@@ -56,7 +56,13 @@ private let truthYCoefficients = [200.0, 400.0, 0.0, 0.0, 0.0, 0.0]
     NormalizedGazePoint(x: 0.49, y: 0.51),
   ]
   let quality = BurstEvaluator.evaluate(samples, dispersionThreshold: 0.08)
-  #expect(quality == .accepted(centroid: NormalizedGazePoint(x: 0.5, y: 0.5)))
+  guard case .accepted(let centroid, let horizontalSpan, let verticalSpan) = quality else {
+    Issue.record("expected the burst to be accepted, got \(quality)")
+    return
+  }
+  #expect(centroid == NormalizedGazePoint(x: 0.5, y: 0.5))
+  #expect(abs(horizontalSpan - 0.02) <= 1e-12)
+  #expect(abs(verticalSpan - 0.02) <= 1e-12)
 }
 
 @Test func dispersedBurstWithOneOutlierIsRejected() {
@@ -202,4 +208,34 @@ private func tightBurst(around target: NormalizedGazePoint) -> [NormalizedGazePo
   #expect(
     run.currentTargetScreenPoint
       == CalibrationTargetPlan.screenPoint(for: plan.validationTargets[0], in: bounds))
+}
+
+@Test func acceptedBurstSpansAreReportedAsObservedJitter() {
+  var run = makeRun()
+  let plan = CalibrationTargetPlan(inset: 0.1)
+  let halfHorizontal = 0.01
+  let halfVertical = 0.005
+
+  func burst(around target: NormalizedGazePoint) -> [NormalizedGazePoint] {
+    [
+      NormalizedGazePoint(x: target.x - halfHorizontal, y: target.y - halfVertical),
+      NormalizedGazePoint(x: target.x + halfHorizontal, y: target.y + halfVertical),
+    ]
+  }
+
+  for target in plan.fitTargets { _ = run.submitBurst(burst(around: target)) }
+  var finalOutcome: CalibrationSubmitOutcome?
+  for target in plan.validationTargets { finalOutcome = run.submitBurst(burst(around: target)) }
+
+  guard case .completed(let result) = finalOutcome else {
+    Issue.record("expected a completed result, got \(String(describing: finalOutcome))")
+    return
+  }
+
+  #expect(result.acceptedBurstCount == 9)
+  #expect(abs(result.observedHorizontalSpanPoints - 2 * halfHorizontal * 1000) <= 1e-9)
+  #expect(abs(result.observedVerticalSpanPoints - 2 * halfVertical * 800) <= 1e-9)
+  #expect(
+    abs(result.observedDispersionPoints - (2 * halfHorizontal * 1000 + 2 * halfVertical * 800))
+      <= 1e-9)
 }
