@@ -6,9 +6,19 @@ import Perception
 final class CameraController {
   enum State: Equatable {
     case off
+    case waitingForPermission
+    case permissionDenied
     case starting
+    case timedOut
     case live
   }
+
+  /// How long `.starting` may run with no frame before it reports itself as
+  /// stuck instead of waiting silently. Chosen well above the sub-second
+  /// time a healthy session needs to deliver its first frame, but short
+  /// enough that a new user sees feedback within the time they would
+  /// otherwise spend wondering whether the app is broken.
+  static let startupTimeout: Duration = .seconds(5)
 
   private(set) var state: State = .off
   var onChange: (() -> Void)?
@@ -18,13 +28,19 @@ final class CameraController {
   var onFieldOfView: ((Double) -> Void)?
 
   private let makeObserver: () -> any FaceObserving
+  private let sleep: @Sendable (Duration) async throws -> Void
   private var observer: (any FaceObserving)?
   private var drain: Task<Void, Never>?
   private var frameDrain: Task<Void, Never>?
+  private var timeoutTask: Task<Void, Never>?
   private var generation = 0
 
-  init(makeObserver: @escaping () -> any FaceObserving = { WebcamFaceObserver() }) {
+  init(
+    makeObserver: @escaping () -> any FaceObserving = { WebcamFaceObserver() },
+    sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+  ) {
     self.makeObserver = makeObserver
+    self.sleep = sleep
   }
 
   func start() async {
@@ -32,10 +48,21 @@ final class CameraController {
     let token = generation
 
     stopCurrentObserver()
-    update(state: .starting)
 
     let fresh = makeObserver()
     observer = fresh
+
+    switch fresh.authorizationStatus {
+    case .denied:
+      observer = nil
+      update(state: .permissionDenied)
+      return
+    case .notDetermined:
+      update(state: .waitingForPermission)
+    case .authorized:
+      update(state: .starting)
+    }
+
     do {
       try await fresh.start()
     } catch {
@@ -51,11 +78,12 @@ final class CameraController {
       fresh.stop()
       return
     }
-    update(state: .live)
+    update(state: .starting)
     if let fieldOfView = (fresh as? any FieldOfViewProviding)?.verticalFieldOfViewDegrees {
       onFieldOfView?(fieldOfView)
     }
     beginDraining(fresh, token: token)
+    scheduleStartupTimeout(token: token)
   }
 
   func pause() {
@@ -65,10 +93,15 @@ final class CameraController {
   }
 
   private func beginDraining(_ observer: any FaceObserving, token: Int) {
+    var sawFirstObservation = false
     drain = Task { [weak self] in
       for await observation in observer.faces {
         if Task.isCancelled { return }
         guard let self, token == self.generation else { return }
+        if !sawFirstObservation {
+          sawFirstObservation = true
+          self.reportLive(token: token)
+        }
         self.onObservation?(observation)
       }
     }
@@ -86,11 +119,34 @@ final class CameraController {
     }
   }
 
+  /// A face-observation arriving proves the session is actually delivering
+  /// frames, whatever state `.starting` last landed in (including
+  /// `.timedOut`), so the controller self-heals here rather than staying
+  /// stuck on a bad first impression.
+  private func reportLive(token: Int) {
+    guard token == generation, state != .live else { return }
+    timeoutTask?.cancel()
+    timeoutTask = nil
+    update(state: .live)
+  }
+
+  private func scheduleStartupTimeout(token: Int) {
+    timeoutTask = Task { [weak self] in
+      guard let self else { return }
+      try? await self.sleep(CameraController.startupTimeout)
+      guard !Task.isCancelled else { return }
+      guard token == self.generation, self.state == .starting else { return }
+      self.update(state: .timedOut)
+    }
+  }
+
   private func stopCurrentObserver() {
     drain?.cancel()
     drain = nil
     frameDrain?.cancel()
     frameDrain = nil
+    timeoutTask?.cancel()
+    timeoutTask = nil
     observer?.stop()
     observer = nil
   }

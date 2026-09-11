@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var settingsWindowController: SettingsWindowController!
   private var startPauseItem: NSMenuItem!
   private var captureCountItem: NSMenuItem!
+  private var actionItem: NSMenuItem!
 
   private let settingsStore = UserDefaultsSettingsStore()
   private let secrets = KeychainStore()
@@ -38,6 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     captureActivity.onChange = { [weak self] in self?.refreshMenu() }
     camera.onChange = { [weak self] in self?.refreshMenu() }
     camera.onError = { [weak self] error in self?.presentCameraError(error) }
+    settingsModel.onCalibrationChanged = { [weak self] in self?.refreshMenu() }
     camera.onFrame = { [weak self] frame in self?.handleFrame(frame) }
     camera.onFieldOfView = { [weak self] degrees in
       Task { await self?.coordinator?.updateVerticalFieldOfView(degrees: degrees) }
@@ -197,6 +199,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     startPauseItem.target = self
     menu.addItem(startPauseItem)
 
+    actionItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    actionItem.target = self
+    actionItem.isHidden = true
+    menu.addItem(actionItem)
+
     let settingsItem = NSMenuItem(
       title: "Settings...", action: #selector(openSettings), keyEquivalent: ",")
     settingsItem.target = self
@@ -212,12 +219,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   private var menuState: MenuBarState {
-    if captureActivity.isBusy { return .captureBusy }
-    switch camera.state {
-    case .off: return .off
-    case .starting: return .on
-    case .live: return .cameraLive
-    }
+    MenuBarState.presenting(
+      camera: camera.state,
+      calibrationNeeded: !settingsModel.hasCalibration,
+      isCaptureBusy: captureActivity.isBusy)
   }
 
   private func refreshMenu() {
@@ -229,15 +234,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     statusItem.button?.image = image
 
     captureCountItem.title = "Session captures: \(captureActivity.captureCount)"
-    startPauseItem.title = state == .off ? "Start" : "Pause"
+    startPauseItem.title = camera.state == .off ? "Start" : "Pause"
+
+    switch state {
+    case .permissionDenied:
+      actionItem.title = "Open Privacy Settings…"
+      actionItem.action = #selector(openPrivacySettings)
+      actionItem.isHidden = false
+    case .uncalibrated:
+      actionItem.title = "Calibrate Now"
+      actionItem.action = #selector(calibrateNow)
+      actionItem.isHidden = false
+    default:
+      actionItem.action = nil
+      actionItem.isHidden = true
+    }
   }
 
   @objc private func toggleCamera() {
     switch camera.state {
-    case .off:
+    case .off, .permissionDenied:
       startGazePipeline()
       Task { await camera.start() }
-    case .starting, .live:
+    case .waitingForPermission, .starting, .timedOut, .live:
       camera.pause()
       stopGazePipeline()
     }
@@ -245,6 +264,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   @objc private func openSettings() {
     settingsWindowController.show()
+  }
+
+  @objc private func openPrivacySettings() {
+    guard
+      let url = URL(
+        string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera")
+    else { return }
+    NSWorkspace.shared.open(url)
+  }
+
+  @objc private func calibrateNow() {
+    settingsWindowController.startCalibration()
   }
 
   @objc private func quit() {

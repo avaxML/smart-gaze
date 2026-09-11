@@ -68,14 +68,16 @@ import Testing
   })
 
   await controller.start()
-  #expect(controller.state == .live)
+  #expect(controller.state == .starting)
+  await controller.reportFirstObservation(from: observers[0])
   #expect(observers[0].startCount == 1)
 
   controller.pause()
   #expect(controller.state == .off)
 
   await controller.start()
-  #expect(controller.state == .live)
+  #expect(controller.state == .starting)
+  await controller.reportFirstObservation(from: observers[1])
   #expect(index == 2)
   #expect(observers[0].stopCount >= 1)
   #expect(observers[1].startCount == 1)
@@ -92,8 +94,8 @@ import Testing
 
   await controller.start()
   await controller.start()
+  await controller.reportFirstObservation(from: observers[1])
 
-  #expect(controller.state == .live)
   #expect(observers[0].stopCount >= 1)
   #expect(observers[1].startCount == 1)
 }
@@ -108,7 +110,7 @@ import Testing
     return observers[index]
   })
   var received = 0
-  let delivered = Signal()
+  var delivered = Signal()
   controller.onObservation = { _ in
     received += 1
     delivered.signal()
@@ -123,9 +125,104 @@ import Testing
   await observers[0].waitUntilTerminated()
 
   observers[0].emit(nil)
+  delivered = Signal()
   await controller.start()
   observers[0].emit(nil)
+  observers[1].emit(nil)
+  await delivered.wait()
 
-  #expect(received == 1)
+  #expect(received == 2)
   #expect(controller.state == .live)
+}
+
+@MainActor
+@Test func notDeterminedAuthorizationWaitsForPermissionInsteadOfStarting() async {
+  let observer = FakeFaceObserver()
+  observer.authorizationStatus = .notDetermined
+  observer.suspendsStart = true
+  let controller = CameraController(makeObserver: { observer })
+
+  let start = Task { await controller.start() }
+  await observer.waitUntilSuspended()
+  #expect(controller.state == .waitingForPermission)
+  #expect(observer.startCount == 1)
+
+  observer.resumeStart()
+  await start.value
+}
+
+@MainActor
+@Test func deniedAuthorizationReportsDeniedWithoutStarting() async {
+  let observer = FakeFaceObserver()
+  observer.authorizationStatus = .denied
+  let controller = CameraController(makeObserver: { observer })
+
+  await controller.start()
+
+  #expect(controller.state == .permissionDenied)
+  #expect(observer.startCount == 0)
+}
+
+@MainActor
+@Test func startingTimesOutWhenNoFrameArrives() async {
+  let observer = FakeFaceObserver()
+  let elapsed = Signal()
+  let controller = CameraController(
+    makeObserver: { observer },
+    sleep: { _ in await elapsed.wait() })
+
+  var timedOut = false
+  let becameTimedOut = Signal()
+  controller.onChange = {
+    if controller.state == .timedOut {
+      timedOut = true
+      becameTimedOut.signal()
+    }
+  }
+
+  await controller.start()
+  #expect(controller.state == .starting)
+
+  elapsed.signal()
+  await becameTimedOut.wait()
+  #expect(timedOut)
+  #expect(controller.state == .timedOut)
+}
+
+@MainActor
+@Test func aLateFrameRecoversFromTimedOut() async {
+  let observer = FakeFaceObserver()
+  let elapsed = Signal()
+  let controller = CameraController(
+    makeObserver: { observer },
+    sleep: { _ in await elapsed.wait() })
+
+  let becameTimedOut = Signal()
+  controller.onChange = {
+    if controller.state == .timedOut { becameTimedOut.signal() }
+  }
+
+  await controller.start()
+  elapsed.signal()
+  await becameTimedOut.wait()
+  #expect(controller.state == .timedOut)
+
+  let becameLive = Signal()
+  controller.onObservation = { _ in becameLive.signal() }
+  observer.emit(nil)
+  await becameLive.wait()
+
+  #expect(controller.state == .live)
+}
+
+extension CameraController {
+  /// Emits one observation from `observer` and waits for the controller to
+  /// finish processing it, so a test can assert on the resulting state
+  /// without racing the `AsyncStream` drain task.
+  fileprivate func reportFirstObservation(from observer: FakeFaceObserver) async {
+    let delivered = Signal()
+    onObservation = { _ in delivered.signal() }
+    observer.emit(nil)
+    await delivered.wait()
+  }
 }

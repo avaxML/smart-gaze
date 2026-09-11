@@ -48,10 +48,16 @@ final class FakeFaceObserver: FaceObserving, @unchecked Sendable {
   private var startErrorStorage: Error?
   private var suspendsStartStorage = false
   private var finishesOnStopStorage = true
+  private var authorizationStatusStorage: CameraAuthorization = .authorized
 
   var startCount: Int { lock.withLock { startCountStorage } }
   var stopCount: Int { lock.withLock { stopCountStorage } }
   var isSuspended: Bool { lock.withLock { gate != nil } }
+
+  var authorizationStatus: CameraAuthorization {
+    get { lock.withLock { authorizationStatusStorage } }
+    set { lock.withLock { authorizationStatusStorage = newValue } }
+  }
 
   var startError: Error? {
     get { lock.withLock { startErrorStorage } }
