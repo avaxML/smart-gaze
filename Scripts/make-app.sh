@@ -40,6 +40,19 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
+# Fetched models ride inside the bundle so a plain `open` works from anywhere.
+# They are gitignored and never committed; this only copies what a fetch script
+# already placed in Models/.
+if [ -d "$REPO_ROOT/Models" ]; then
+  mkdir -p "$APP/Contents/Resources/Models"
+  for model in blazegaze.mlmodelc face-mesh/face_mesh.mlmodelc; do
+    if [ -d "$REPO_ROOT/Models/$model" ]; then
+      mkdir -p "$APP/Contents/Resources/Models/$(dirname "$model")"
+      cp -R "$REPO_ROOT/Models/$model" "$APP/Contents/Resources/Models/$model"
+    fi
+  done
+fi
+
 plutil -lint "$APP/Contents/Info.plist" > /dev/null
 
 codesign --force --sign - --timestamp=none "$APP"

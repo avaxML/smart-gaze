@@ -28,7 +28,10 @@ open --env "SMART_GAZE_LAUNCH_LOG=${LOG}" "${BUNDLE}"
 
 elapsed=0
 while [[ ${elapsed} -lt ${TIMEOUT_SECONDS} ]]; do
-  if grep -q "launch-completed" "${LOG}" 2>/dev/null; then break; fi
+  if grep -q "pipeline-ready" "${LOG}" 2>/dev/null \
+    && grep -qE "camera-state.*State\.(live|waitingForPermission|permissionDenied|timedOut)" "${LOG}" 2>/dev/null; then
+    break
+  fi
   sleep 1
   elapsed=$((elapsed + 1))
 done
@@ -56,4 +59,17 @@ if grep -q "camera-state.*State.starting" "${LOG}" 2>/dev/null \
   exit 1
 fi
 
-echo "PASS: launch completed and the camera reported a real state."
+# A live camera with no gaze model produces nothing, silently. That shipped once,
+# because the load failure was swallowed and a Finder launch resolves relative
+# model paths against /.
+if grep -q "pipeline-ready failed" "${LOG}" 2>/dev/null; then
+  echo "FAIL: the gaze pipeline could not load its models." >&2
+  grep "pipeline-ready" "${LOG}" >&2
+  exit 1
+fi
+if ! grep -q "pipeline-ready ok" "${LOG}" 2>/dev/null; then
+  echo "FAIL: the gaze pipeline never reported readiness." >&2
+  exit 1
+fi
+
+echo "PASS: launch completed, the camera reported a real state, and the gaze models loaded."
