@@ -11,6 +11,19 @@ public enum GazePipelineError: Error, Equatable, Sendable {
   case cropUnavailable
 }
 
+/// One frame's gaze reading alongside the face distance the same frame
+/// implied, so a caller can record the distance a calibration was performed
+/// at without a second pass over the landmarks.
+public struct GazeEstimate: Equatable, Sendable {
+  public let gaze: NormalizedGazePoint
+  public let faceDistanceCentimeters: Double
+
+  public init(gaze: NormalizedGazePoint, faceDistanceCentimeters: Double) {
+    self.gaze = gaze
+    self.faceDistanceCentimeters = faceDistanceCentimeters
+  }
+}
+
 /// Turns a camera frame into a normalized gaze point.
 ///
 /// Owns both Core ML estimators and does the Core Video, Core ML and Vision
@@ -47,8 +60,7 @@ public actor GazePipeline {
     verticalFieldOfViewDegrees = degrees
   }
 
-  public func gazePoint(from pixelBuffer: sending CVPixelBuffer) async throws -> NormalizedGazePoint
-  {
+  public func gazePoint(from pixelBuffer: sending CVPixelBuffer) async throws -> GazeEstimate {
     try Task.checkCancellation()
 
     let frameSize = CGSize(
@@ -91,7 +103,9 @@ public actor GazePipeline {
       headVector: headPose.modelVectors.headVector,
       faceOriginCentimeters: headPose.modelVectors.faceOriginCentimeters)
 
-    return try await blazeGaze.estimate(blazeInput)
+    let gaze = try await blazeGaze.estimate(blazeInput)
+    return GazeEstimate(
+      gaze: gaze, faceDistanceCentimeters: headPose.faceOrigin.centimetres.z)
   }
 
   /// The only Vision call in the pipeline: bootstraps the crop from Vision's

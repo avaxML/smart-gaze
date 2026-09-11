@@ -11,6 +11,7 @@ private func fullyPopulatedSettings() throws -> Settings {
     """
   var settings = Settings.default
   settings.calibrationMap = try JSONDecoder().decode(CalibrationMap.self, from: Data(json.utf8))
+  settings.calibrationDistanceCentimeters = 57
   return settings
 }
 

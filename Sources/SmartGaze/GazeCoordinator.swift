@@ -97,9 +97,9 @@ actor GazeCoordinator {
   func handleFrame(_ pixelBuffer: sending CVPixelBuffer, at timestamp: TimeInterval) async {
     guard let gazePipeline, let calibration else { return }
     do {
-      let gaze = try await gazePipeline.gazePoint(from: pixelBuffer)
+      let estimate = try await gazePipeline.gazePoint(from: pixelBuffer)
       faceLoss.recordSuccess()
-      let screenPoint = calibration.project(gaze)
+      let screenPoint = calibration.project(estimate.gaze)
       let filtered = gazeFilter.apply(screenPoint, at: timestamp)
       await apply(tracking.handle(.sample(filtered, timestamp)))
     } catch is CancellationError {

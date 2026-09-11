@@ -252,8 +252,7 @@ struct CalibrationPreviewView: View {
             Button("Cancel") { model.cancelExplanation() }
           }
           Spacer()
-          Button("Start Calibration") {}
-            .disabled(true)
+          Button("Start Calibration") { model.startCalibration() }
         }
 
         if let message = model.explanationAvailabilityMessage {
@@ -261,7 +260,7 @@ struct CalibrationPreviewView: View {
             .font(.caption)
             .foregroundStyle(.secondary)
         }
-        Text("Calibration is not available in this build.")
+        Text(model.calibrationStatusMessage)
           .font(.caption)
           .foregroundStyle(.secondary)
       }

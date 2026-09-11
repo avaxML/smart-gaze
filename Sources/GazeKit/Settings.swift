@@ -39,6 +39,7 @@ public struct Settings: Codable, Equatable, Sendable {
   public var providers: [ProviderKind: ProviderSettings]
   public var deniedApps: AppDenylist
   public var calibrationMap: CalibrationMap?
+  public var calibrationDistanceCentimeters: Double?
 
   private enum CodingKeys: String, CodingKey {
     case dwellSeconds
@@ -51,6 +52,7 @@ public struct Settings: Codable, Equatable, Sendable {
     case providers
     case deniedApps
     case calibrationMap
+    case calibrationDistanceCentimeters
   }
 
   public init(from decoder: Decoder) throws {
@@ -67,6 +69,8 @@ public struct Settings: Codable, Equatable, Sendable {
     deniedApps = (try? container.decode(AppDenylist.self, forKey: .deniedApps)) ?? AppDenylist()
     // A legacy or corrupted calibration must drop only itself, never the user's other saved settings.
     calibrationMap = try? container.decode(CalibrationMap.self, forKey: .calibrationMap)
+    calibrationDistanceCentimeters = try? container.decode(
+      Double.self, forKey: .calibrationDistanceCentimeters)
   }
 
   public init(
@@ -79,7 +83,8 @@ public struct Settings: Codable, Equatable, Sendable {
     activeProvider: ProviderKind,
     providers: [ProviderKind: ProviderSettings],
     deniedApps: AppDenylist = AppDenylist(),
-    calibrationMap: CalibrationMap? = nil
+    calibrationMap: CalibrationMap? = nil,
+    calibrationDistanceCentimeters: Double? = nil
   ) {
     self.dwellSeconds = dwellSeconds
     self.dispersionThreshold = dispersionThreshold
@@ -91,6 +96,7 @@ public struct Settings: Codable, Equatable, Sendable {
     self.providers = providers
     self.deniedApps = deniedApps
     self.calibrationMap = calibrationMap
+    self.calibrationDistanceCentimeters = calibrationDistanceCentimeters
   }
 
   public static let `default` = Settings(

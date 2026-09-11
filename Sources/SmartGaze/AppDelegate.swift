@@ -43,6 +43,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       Task { await self?.coordinator?.updateVerticalFieldOfView(degrees: degrees) }
     }
     refreshMenu()
+
+    if !settingsModel.hasCalibration {
+      offerFirstRunCalibration()
+    }
+  }
+
+  /// Offers calibration, never forces it. A user who declines keeps running
+  /// uncalibrated rather than being blocked from using the app.
+  private func offerFirstRunCalibration() {
+    let alert = NSAlert()
+    alert.messageText = "Calibrate SmartGaze?"
+    alert.informativeText =
+      "Without calibration, gaze tracking is not usable. Calibration takes under a minute: look at nine dots, then four more to check the result."
+    alert.alertStyle = .informational
+    alert.addButton(withTitle: "Calibrate Now")
+    alert.addButton(withTitle: "Not Now")
+    if alert.runModal() == .alertFirstButtonReturn {
+      settingsWindowController.startCalibration()
+    }
   }
 
   private func handleFrame(_ frame: CameraFrame) {

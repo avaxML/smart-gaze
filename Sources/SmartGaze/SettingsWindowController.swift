@@ -6,11 +6,29 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
   private let model: SettingsModel
   private let preview: CalibrationPreviewModel
   private var window: NSWindow?
+  private var calibrationWindowController: CalibrationWindowController?
 
   init(model: SettingsModel) {
     self.model = model
     self.preview = CalibrationPreviewModel(settings: model)
     super.init()
+    preview.onStartCalibration = { [weak self] in self?.startCalibration() }
+  }
+
+  /// The single entry point for both re-entry points in issue #14: the
+  /// Settings button calls this directly, and `AppDelegate`'s first-run
+  /// prompt calls it too, so a completed run always lands the same way.
+  func startCalibration() {
+    guard calibrationWindowController == nil else { return }
+    let bounds = CalibrationWindowController.unionOfActiveDisplays()
+    let coordinator = CalibrationCoordinator(bounds: bounds)
+    let controller = CalibrationWindowController(coordinator: coordinator)
+    calibrationWindowController = controller
+    controller.present { [weak self] result in
+      self?.calibrationWindowController = nil
+      guard let result else { return }
+      self?.model.applyCalibrationResult(result)
+    }
   }
 
   func show() {
