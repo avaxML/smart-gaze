@@ -91,10 +91,10 @@ struct VideoGazeHarness {
       frames += 1
       let started = CFAbsoluteTimeGetCurrent()
       do {
-        let point = try await pipeline.gazePoint(from: frame)
+        let estimate = try await pipeline.gazePoint(from: frame)
         latencies.append((CFAbsoluteTimeGetCurrent() - started) * 1000)
-        xs.append(point.x)
-        ys.append(point.y)
+        xs.append(estimate.gaze.x)
+        ys.append(estimate.gaze.y)
         produced += 1
       } catch let error as GazePipelineError {
         switch error {
