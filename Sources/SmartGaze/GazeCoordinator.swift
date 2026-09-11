@@ -40,6 +40,7 @@ actor GazeCoordinator {
   private var blinkDetector = BlinkDetector()
   private var headPose = HeadPoseGate()
   private let calibration: CalibrationMap?
+  private let headTranslation: HeadTranslationCorrection?
 
   private let gazePipeline: GazePipeline?
   private let capturer: any RegionCapturing
@@ -75,6 +76,7 @@ actor GazeCoordinator {
       dwellWindow: settings.dwellSeconds,
       dispersionThreshold: settings.dispersionThreshold)
     self.calibration = settings.calibrationMap
+    self.headTranslation = settings.headTranslationCorrection
     self.gazePipeline = gazePipeline
     self.capturer = capturer
     self.bubble = bubble
@@ -116,7 +118,11 @@ actor GazeCoordinator {
     do {
       let estimate = try await gazePipeline.gazePoint(from: pixelBuffer)
       faceLoss.recordSuccess()
-      let screenPoint = calibration.project(estimate.gaze)
+      handleHeadYaw(estimate.headYawRadians)
+      let projected = calibration.project(estimate.gaze)
+      let screenPoint =
+        headTranslation?.correct(projected, faceOriginCentimeters: estimate.faceOriginCentimeters)
+        ?? projected
       let filtered = gazeFilter.apply(screenPoint, at: timestamp)
       await handleGazeSample(filtered, at: timestamp)
     } catch is CancellationError {
@@ -127,6 +133,14 @@ actor GazeCoordinator {
         await apply(tracking.handle(.trackingLost(timestamp)))
       }
     }
+  }
+
+  /// Head yaw comes from the same landmarks the gaze estimate does, not from
+  /// Vision's face yaw, which is quantised to 45 degree steps and would make
+  /// the gate flip on one bucket boundary. Internal so a test can turn the
+  /// head without a live pipeline.
+  func handleHeadYaw(_ yawRadians: Double) {
+    headPose.update(yawRadians: yawRadians)
   }
 
   /// Feeds a resolved screen-space gaze point straight into tracking.
@@ -150,7 +164,6 @@ actor GazeCoordinator {
   /// gaze pipeline itself produced an estimate this frame.
   func handleObservation(_ observation: FaceObservation?, at timestamp: TimeInterval) async {
     guard let observation else { return }
-    headPose.update(yawRadians: observation.yaw)
     let left = eyeAspectRatio(observation.leftEye)
     let right = eyeAspectRatio(observation.rightEye)
     guard let event = blinkDetector.add(left: left, right: right, at: timestamp) else { return }

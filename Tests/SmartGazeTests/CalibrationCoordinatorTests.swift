@@ -105,3 +105,35 @@ private func solveCalibrationFixture(scale: Double = 1) throws -> CalibrationMap
   }
   return try solveCalibration(samples)
 }
+
+@MainActor
+@Test func aResultWithAFaceOriginAndADisplayDensityStoresTheHeadCorrection() {
+  let store = FakeSettingsStore(current: .default)
+  let model = SettingsModel(store: store, secrets: FakeSecrets(), settings: .default)
+  let result = CalibrationResult(
+    map: try! solveCalibrationFixture(), horizontalErrorPoints: 4, verticalErrorPoints: 9,
+    distanceCentimeters: 61, faceOriginCentimeters: SIMD3(1.5, 4.0, 61.0))
+
+  model.applyCalibrationResult(result, pointsPerCentimeter: SIMD2(50.2, 50.1))
+
+  #expect(
+    model.settings.headTranslationCorrection
+      == HeadTranslationCorrection(
+        referenceOriginCentimeters: SIMD3(1.5, 4.0, 61.0), pointsPerCentimeter: SIMD2(50.2, 50.1)))
+
+  // Without a density there is no scale to correct by; the previous correction goes too.
+  model.applyCalibrationResult(result)
+  #expect(model.settings.headTranslationCorrection == nil)
+}
+
+@Test func theDisplayDensityComesFromItsPhysicalSize() {
+  let density = SettingsWindowController.pointsPerCentimeter(
+    bounds: CGRect(x: 0, y: 0, width: 1728, height: 1117),
+    physicalMillimetres: CGSize(width: 344, height: 223))
+  #expect(density != nil)
+  #expect(abs((density?.x ?? 0) - 50.23) <= 0.01)
+  #expect(abs((density?.y ?? 0) - 50.09) <= 0.01)
+  #expect(
+    SettingsWindowController.pointsPerCentimeter(
+      bounds: CGRect(x: 0, y: 0, width: 1728, height: 1117), physicalMillimetres: .zero) == nil)
+}

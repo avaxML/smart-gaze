@@ -15,8 +15,14 @@ private let truthYCoefficients = [200.0, 400.0, 0.0, 0.0, 0.0, 0.0]
   let plan = CalibrationTargetPlan(inset: 0.1)
   #expect(plan.fitTargets.count == 9)
   #expect(plan.fitTargets[0] == NormalizedGazePoint(x: 0.1, y: 0.1))
-  #expect(plan.fitTargets[4] == NormalizedGazePoint(x: 0.5, y: 0.5))
-  #expect(plan.fitTargets[8] == NormalizedGazePoint(x: 0.9, y: 0.9))
+  #expect(plan.fitTargets[1] == NormalizedGazePoint(x: 0.1, y: 0.9))
+  #expect(plan.fitTargets[5] == NormalizedGazePoint(x: 0.5, y: 0.5))
+  #expect(plan.fitTargets[8] == NormalizedGazePoint(x: 0.9, y: 0.5))
+  // No two consecutive targets share a row, so a drifting posture cannot
+  // masquerade as a vertical gain.
+  for pair in zip(plan.fitTargets, plan.fitTargets.dropFirst()) {
+    #expect(pair.0.y != pair.1.y)
+  }
 }
 
 @Test func targetGridInsetsEveryFitPointFromTheEdges() {
@@ -238,4 +244,31 @@ private func tightBurst(around target: NormalizedGazePoint) -> [NormalizedGazePo
   #expect(
     abs(result.observedDispersionPoints - (2 * halfHorizontal * 1000 + 2 * halfVertical * 800))
       <= 1e-9)
+}
+
+@Test func theResultCarriesTheMeanFaceOriginOfTheAcceptedFitBursts() {
+  let plan = CalibrationTargetPlan()
+  var run = CalibrationRun(
+    plan: plan, bounds: CGRect(x: 0, y: 0, width: 1000, height: 600),
+    dispersionThreshold: 0.25, distanceCentimeters: 60)
+  let fitCount = plan.fitTargets.count
+  for index in 0..<fitCount {
+    let target = plan.fitTargets[index]
+    // Posture drifts 0.1 cm down per target, the pattern a row by row run shows.
+    run.recordFaceOrigin(SIMD3(1.0, 3.0 + 0.1 * Double(index), 60.0))
+    _ = run.submitBurst([NormalizedGazePoint(x: target.x - 0.5, y: target.y - 0.5)])
+  }
+  #expect(run.acceptedFitOrigins.count == fitCount)
+
+  for target in plan.validationTargets {
+    _ = run.submitBurst([NormalizedGazePoint(x: target.x - 0.5, y: target.y - 0.5)])
+  }
+  guard case .finished(let result) = run.stage else {
+    Issue.record("expected a finished run, got \(run.stage)")
+    return
+  }
+  let expectedY = 3.0 + 0.1 * Double(fitCount - 1) / 2
+  #expect(result.faceOriginCentimeters?.x == 1.0)
+  #expect(abs((result.faceOriginCentimeters?.y ?? 0) - expectedY) <= 1e-9)
+  #expect(result.faceOriginCentimeters?.z == 60.0)
 }

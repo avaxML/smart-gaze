@@ -72,4 +72,13 @@ if ! grep -q "pipeline-ready ok" "${LOG}" 2>/dev/null; then
   exit 1
 fi
 
+# The key is read from the Keychain by the installed binary's code identity.
+# An ad-hoc rebuild used to lose it every launch; this line is how that is
+# caught without anyone typing the key again. Absent is a warning, not a
+# failure, because a fresh machine legitimately has no key yet.
+if grep -q "provider-key .* absent" "${LOG}" 2>/dev/null; then
+  echo "WARN: the active provider has no readable key; the bubble will report no provider." >&2
+  grep "provider-key" "${LOG}" >&2
+fi
+
 echo "PASS: launch completed, the camera reported a real state, and the gaze models loaded."

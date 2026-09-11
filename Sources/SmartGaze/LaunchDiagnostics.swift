@@ -16,6 +16,9 @@ enum LaunchDiagnostics {
     case pipelineReady = "pipeline-ready"
     case calibration = "calibration"
     case intrinsicMatrix = "intrinsic-matrix"
+    /// Whether the active provider's key was readable from the Keychain at
+    /// launch. Never the key itself, only "present" or "absent".
+    case providerKey = "provider-key"
   }
 
   private static let path = ProcessInfo.processInfo.environment["SMART_GAZE_LAUNCH_LOG"]

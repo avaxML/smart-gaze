@@ -324,10 +324,23 @@ final class SettingsModel: ObservableObject {
 
   var onCalibrationChanged: (() -> Void)?
 
-  func applyCalibrationResult(_ result: CalibrationResult) {
+  /// `pointsPerCentimeter` is the calibrated display's density, from its
+  /// physical size; nil (an unknown display, or a test) disables the head
+  /// translation correction rather than guessing a scale.
+  func applyCalibrationResult(
+    _ result: CalibrationResult, pointsPerCentimeter: SIMD2<Double>? = nil
+  ) {
     settings.calibrationMap = result.map
     settings.calibrationDistanceCentimeters = result.distanceCentimeters
     settings.calibratedBounds = result.bounds.isNull ? nil : result.bounds
+    if let origin = result.faceOriginCentimeters, let pointsPerCentimeter,
+      pointsPerCentimeter.x > 0, pointsPerCentimeter.y > 0
+    {
+      settings.headTranslationCorrection = HeadTranslationCorrection(
+        referenceOriginCentimeters: origin, pointsPerCentimeter: pointsPerCentimeter)
+    } else {
+      settings.headTranslationCorrection = nil
+    }
     persist()
     onCalibrationChanged?()
   }

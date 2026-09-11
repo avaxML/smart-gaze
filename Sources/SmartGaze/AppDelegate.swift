@@ -36,6 +36,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = SettingsModel(store: settingsStore, secrets: secrets, settings: settings)
     settingsModel = model
     settingsWindowController = SettingsWindowController(model: model)
+    LaunchDiagnostics.record(
+      .providerKey,
+      "\(settings.activeProvider.rawValue) \(model.hasStoredKey ? "present" : "absent")")
 
     configureMainMenu()
     configureStatusItem()

@@ -41,6 +41,7 @@ public struct Settings: Codable, Equatable, Sendable {
   public var calibrationMap: CalibrationMap?
   public var calibrationDistanceCentimeters: Double?
   public var calibratedBounds: CGRect?
+  public var headTranslationCorrection: HeadTranslationCorrection?
 
   private enum CodingKeys: String, CodingKey {
     case dwellSeconds
@@ -55,6 +56,7 @@ public struct Settings: Codable, Equatable, Sendable {
     case calibrationMap
     case calibrationDistanceCentimeters
     case calibratedBounds
+    case headTranslationCorrection
   }
 
   public init(from decoder: Decoder) throws {
@@ -74,6 +76,8 @@ public struct Settings: Codable, Equatable, Sendable {
     calibrationDistanceCentimeters = try? container.decode(
       Double.self, forKey: .calibrationDistanceCentimeters)
     calibratedBounds = try? container.decode(CGRect.self, forKey: .calibratedBounds)
+    headTranslationCorrection = try? container.decode(
+      HeadTranslationCorrection.self, forKey: .headTranslationCorrection)
   }
 
   public init(
@@ -88,7 +92,8 @@ public struct Settings: Codable, Equatable, Sendable {
     deniedApps: AppDenylist = AppDenylist(),
     calibrationMap: CalibrationMap? = nil,
     calibrationDistanceCentimeters: Double? = nil,
-    calibratedBounds: CGRect? = nil
+    calibratedBounds: CGRect? = nil,
+    headTranslationCorrection: HeadTranslationCorrection? = nil
   ) {
     self.dwellSeconds = dwellSeconds
     self.dispersionThreshold = dispersionThreshold
@@ -102,6 +107,7 @@ public struct Settings: Codable, Equatable, Sendable {
     self.calibrationMap = calibrationMap
     self.calibrationDistanceCentimeters = calibrationDistanceCentimeters
     self.calibratedBounds = calibratedBounds
+    self.headTranslationCorrection = headTranslationCorrection
   }
 
   public static let `default` = Settings(

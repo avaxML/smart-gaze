@@ -186,8 +186,9 @@ private let nonCoplanarPoints: [SIMD3<Double>] = [
     imageSize: SIMD2(1000, 500)
   )
 
+  // Eyes right of and below the image centre: both positive in the camera frame.
   #expect(origin.centimetres.x > 0)
-  #expect(origin.centimetres.y < 0)
+  #expect(origin.centimetres.y > 0)
 }
 
 @Test func measuredFocalLengthOverridesTheAssumedFieldOfView() throws {

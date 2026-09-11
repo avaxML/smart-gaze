@@ -84,6 +84,14 @@ public func headVector(from rotation: RigidRotation) -> SIMD3<Double> {
   return SIMD3<Double>(rotatedX / length, rotatedY / length, z / length)
 }
 
+/// The head's turn about the vertical axis, from the unit vector the face
+/// points along. Zero facing the camera, positive and negative for the two
+/// sides; callers that gate on it use the magnitude. Continuous, unlike
+/// Vision's face yaw, which arrives quantised to 45 degree steps.
+public func headYawRadians(from head: SIMD3<Double>) -> Double {
+  atan2(head.x, -head.z)
+}
+
 public struct MetricFaceOrigin: Equatable, Sendable {
   public let centimetres: SIMD3<Double>
 }
@@ -135,7 +143,9 @@ public func metricFaceOrigin(
 
   let eyeMid = (leftMid + rightMid) / 2
   let originX = (eyeMid.x - imageSize.x / 2) * depthCm / focalPx
-  let originY = (imageSize.y / 2 - eyeMid.y) * depthCm / focalPx
+  // Camera frame as BlazeGaze was trained on it: x image-right, y image-down,
+  // z away from the camera. The port this came from flipped y to up.
+  let originY = (eyeMid.y - imageSize.y / 2) * depthCm / focalPx
 
   return MetricFaceOrigin(centimetres: SIMD3<Double>(originX, originY, depthCm))
 }

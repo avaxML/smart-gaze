@@ -43,6 +43,7 @@ final class CalibrationCoordinator {
   private var gazeCount = 0
   private var gazeErrorCount = 0
   private var latestDistanceCentimeters: Double?
+  private var latestFaceOrigin: SIMD3<Double>?
 
   init(
     bounds: CGRect,
@@ -132,6 +133,12 @@ final class CalibrationCoordinator {
       if let latestDistanceCentimeters {
         currentRun.recordDistance(latestDistanceCentimeters)
       }
+      if let latestFaceOrigin {
+        currentRun.recordFaceOrigin(latestFaceOrigin)
+        LaunchDiagnostics.record(
+          .calibration,
+          "origin cm=(\(latestFaceOrigin.x),\(latestFaceOrigin.y),\(latestFaceOrigin.z))")
+      }
       let outcome = currentRun.submitBurst(samples)
       if !samples.isEmpty {
         let cx = samples.map(\.x).reduce(0, +) / Double(samples.count)
@@ -152,7 +159,7 @@ final class CalibrationCoordinator {
       case .completed(let result):
         LaunchDiagnostics.record(
           .calibration,
-          "completed hErr=\(result.horizontalErrorPoints) vErr=\(result.verticalErrorPoints) x=\(result.map.xCoefficients) y=\(result.map.yCoefficients)"
+          "completed hErr=\(result.horizontalErrorPoints) vErr=\(result.verticalErrorPoints) dispersion=\(result.observedDispersionPoints) bursts=\(result.acceptedBurstCount) x=\(result.map.xCoefficients) y=\(result.map.yCoefficients)"
         )
         progress.completed = progress.total
         finish(with: result)
@@ -190,6 +197,7 @@ final class CalibrationCoordinator {
         self.gazeCount += 1
         self.bufferedGaze.append(estimate.gaze)
         self.latestDistanceCentimeters = estimate.faceDistanceCentimeters
+        self.latestFaceOrigin = estimate.faceOriginCentimeters
       } catch {
         self.gazeErrorCount += 1
         if self.gazeErrorCount <= 5 {

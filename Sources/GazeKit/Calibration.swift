@@ -22,7 +22,12 @@ public struct CalibrationSample: Equatable, Sendable {
 }
 
 public struct CalibrationMap: Equatable, Sendable, Codable {
-  public static let inputSpaceMarker = "normalized-screen-point-affine-v2"
+  /// Bumped whenever the pipeline that feeds the map changes in a way that
+  /// moves its fit: v3 flipped the face origin to the y-down training frame
+  /// and added the head translation reference the map is only valid with. A
+  /// stored map with an older marker is dropped on load, which puts the app
+  /// back in "Calibration needed" instead of tracking with a stale fit.
+  public static let inputSpaceMarker = "normalized-screen-point-affine-v3"
 
   public let xCoefficients: [Double]
   public let yCoefficients: [Double]

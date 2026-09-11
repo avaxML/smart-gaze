@@ -123,8 +123,10 @@ nothing.
 `Perception` runs the compiled BlazeGaze Core ML model through
 `BlazeGazeEstimator`. The estimator takes one already-prepared training-format eye
 band (`image [1, 128, 512, 3]` float32, RGB divided by 255), a unit head direction
-vector, and a metric face origin in centimetres. It returns the model's normalized
-screen point (`Identity [1, 2]`) without clamping. Callers must do the dense-mesh
+vector, and a metric face origin in centimetres. It returns the model's screen
+point (`Identity [1, 2]`) without clamping; the output is centred on zero and spans
+roughly plus or minus 0.5 across a display, and only a fitted `CalibrationMap` turns
+it into points. Callers must do the dense-mesh
 preprocessing themselves; the estimator does not accept a raw Vision face crop.
 
 The fetched artifact is the third-party Core ML conversion published by
@@ -207,8 +209,15 @@ Treat this build as personal and research use until those terms are established.
 The metric face origin is an approximation, not a reconstruction. The faithful
 upstream method needs `face_width_cm` from iris landmarks 468 to 477, which the base
 468-point mesh does not provide. What ships instead scales an assumed 6.3 cm
-interpupillary distance against an assumed 60 degree vertical field of view. Neither
-constant has been fitted to a real camera yet.
+interpupillary distance against a vertical field of view of 32 degrees, fitted on
+one MacBook Pro 14 inch built-in camera (`CameraGeometry`), because that camera
+reports no intrinsic matrix. The origin is in the camera frame BlazeGaze was
+trained on: x image-right, y image-down, z away, centimetres.
+
+The calibration map is fitted at one head position. `HeadTranslationCorrection`
+moves the projected point by the head's sideways and vertical displacement since
+calibration, using the display's physical density; depth is left to the model,
+whose own origin term tracks it.
 
 ## Licence
 
