@@ -39,7 +39,8 @@ public struct CalibrationTargetPlan: Equatable, Sendable {
 /// to trust. Dispersion is the sum of the horizontal and vertical span of the
 /// burst, the same bounding-box measure `FixationDetector` already uses.
 public enum BurstQuality: Equatable, Sendable {
-  case accepted(centroid: NormalizedGazePoint)
+  case accepted(
+    centroid: NormalizedGazePoint, horizontalSpan: Double, verticalSpan: Double)
   case dispersed(dispersion: Double)
 }
 
@@ -68,7 +69,9 @@ public enum BurstEvaluator {
     guard dispersion < dispersionThreshold else { return .dispersed(dispersion: dispersion) }
 
     let count = Double(samples.count)
-    return .accepted(centroid: NormalizedGazePoint(x: sumX / count, y: sumY / count))
+    return .accepted(
+      centroid: NormalizedGazePoint(x: sumX / count, y: sumY / count),
+      horizontalSpan: maxX - minX, verticalSpan: maxY - minY)
   }
 }
 
@@ -79,15 +82,28 @@ public struct CalibrationResult: Equatable, Sendable {
   public let horizontalErrorPoints: Double
   public let verticalErrorPoints: Double
   public let distanceCentimeters: Double
+  /// Median spread of the accepted fixation bursts, in screen points, measured
+  /// while the user held a known target. `dispersion` is the sum of the two
+  /// axes, matching `FixationDetector`.
+  public let observedHorizontalSpanPoints: Double
+  public let observedVerticalSpanPoints: Double
+  public let observedDispersionPoints: Double
+  public let acceptedBurstCount: Int
 
   public init(
     map: CalibrationMap, horizontalErrorPoints: Double, verticalErrorPoints: Double,
-    distanceCentimeters: Double
+    distanceCentimeters: Double, observedHorizontalSpanPoints: Double = 0,
+    observedVerticalSpanPoints: Double = 0, observedDispersionPoints: Double = 0,
+    acceptedBurstCount: Int = 0
   ) {
     self.map = map
     self.horizontalErrorPoints = horizontalErrorPoints
     self.verticalErrorPoints = verticalErrorPoints
     self.distanceCentimeters = distanceCentimeters
+    self.observedHorizontalSpanPoints = observedHorizontalSpanPoints
+    self.observedVerticalSpanPoints = observedVerticalSpanPoints
+    self.observedDispersionPoints = observedDispersionPoints
+    self.acceptedBurstCount = acceptedBurstCount
   }
 }
 
@@ -130,6 +146,11 @@ public struct CalibrationRun: Sendable {
   private var fitSamples: [CalibrationSample] = []
   private var map: CalibrationMap?
   private var validationErrors: [(horizontal: Double, vertical: Double)] = []
+  /// Spans of every burst accepted while the user was provably holding a known
+  /// target, which is the only condition under which observed spread is jitter
+  /// rather than the user looking somewhere else. This is the measurement #21
+  /// needs to replace a guessed dispersion threshold.
+  private var acceptedSpans: [(horizontal: Double, vertical: Double)] = []
 
   public init(
     plan: CalibrationTargetPlan,
@@ -183,7 +204,8 @@ public struct CalibrationRun: Sendable {
     switch BurstEvaluator.evaluate(samples, dispersionThreshold: dispersionThreshold) {
     case .dispersed(let dispersion):
       return .retryTarget(dispersion: dispersion)
-    case .accepted(let centroid):
+    case .accepted(let centroid, let horizontalSpan, let verticalSpan):
+      acceptedSpans.append((horizontal: horizontalSpan, vertical: verticalSpan))
       let screenPoint = CalibrationTargetPlan.screenPoint(for: plan.fitTargets[index], in: bounds)
       fitSamples.append(CalibrationSample(gaze: centroid, screenPoint: screenPoint))
 
@@ -192,6 +214,11 @@ public struct CalibrationRun: Sendable {
       stage = .fitting(targetIndex: nextIndex)
       return .advancedToNextFitTarget
     }
+  }
+
+  static func median(_ sorted: [Double]) -> Double {
+    guard !sorted.isEmpty else { return 0 }
+    return sorted[sorted.count / 2]
   }
 
   private mutating func solveFit() -> CalibrationSubmitOutcome {
@@ -218,7 +245,7 @@ public struct CalibrationRun: Sendable {
     switch BurstEvaluator.evaluate(samples, dispersionThreshold: dispersionThreshold) {
     case .dispersed(let dispersion):
       return .retryTarget(dispersion: dispersion)
-    case .accepted(let centroid):
+    case .accepted(let centroid, _, _):
       let actual = CalibrationTargetPlan.screenPoint(for: plan.validationTargets[index], in: bounds)
       let predicted = map.project(centroid)
       validationErrors.append(
@@ -235,11 +262,18 @@ public struct CalibrationRun: Sendable {
     let count = Double(validationErrors.count)
     let horizontalMean = validationErrors.map(\.horizontal).reduce(0, +) / count
     let verticalMean = validationErrors.map(\.vertical).reduce(0, +) / count
+    let horizontalSpans = acceptedSpans.map { $0.horizontal * Double(bounds.width) }.sorted()
+    let verticalSpans = acceptedSpans.map { $0.vertical * Double(bounds.height) }.sorted()
+    let dispersions = zip(horizontalSpans, verticalSpans).map(+).sorted()
     let result = CalibrationResult(
       map: map,
       horizontalErrorPoints: horizontalMean,
       verticalErrorPoints: verticalMean,
-      distanceCentimeters: distanceCentimeters)
+      distanceCentimeters: distanceCentimeters,
+      observedHorizontalSpanPoints: CalibrationRun.median(horizontalSpans),
+      observedVerticalSpanPoints: CalibrationRun.median(verticalSpans),
+      observedDispersionPoints: CalibrationRun.median(dispersions),
+      acceptedBurstCount: acceptedSpans.count)
     stage = .finished(result)
     return .completed(result)
   }
