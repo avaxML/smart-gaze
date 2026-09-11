@@ -36,6 +36,8 @@ import ScreenCapture
 actor GazeCoordinator {
   private var tracking: TrackingPreview
   private var gazeFilter = OneEuroPointFilter()
+  private var traceSamplesLeft =
+    ProcessInfo.processInfo.environment["SMART_GAZE_TRACE_GAZE"] == nil ? 0 : 900
   private var faceLoss = FaceLossDebounce()
   private var blinkDetector = BlinkDetector()
   private var headPose = HeadPoseGate()
@@ -124,6 +126,14 @@ actor GazeCoordinator {
         headTranslation?.correct(projected, faceOriginCentimeters: estimate.faceOriginCentimeters)
         ?? projected
       let filtered = gazeFilter.apply(screenPoint, at: timestamp)
+      if traceSamplesLeft > 0 {
+        traceSamplesLeft -= 1
+        LaunchDiagnostics.record(
+          .gaze,
+          "t=\(timestamp) raw=(\(projected.x),\(projected.y)) corrected=(\(screenPoint.x),\(screenPoint.y)) "
+            + "filtered=(\(filtered.x),\(filtered.y)) origin=(\(estimate.faceOriginCentimeters.x),\(estimate.faceOriginCentimeters.y),\(estimate.faceOriginCentimeters.z))"
+        )
+      }
       await handleGazeSample(filtered, at: timestamp)
     } catch is CancellationError {
       return

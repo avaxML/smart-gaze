@@ -23,6 +23,10 @@ enum LaunchDiagnostics {
     /// sees. The only way to tell "no Accessibility" from "no gaze" from
     /// "no capture" without a debugger.
     case modifier = "modifier"
+    /// Raw and filtered screen points, only while `SMART_GAZE_TRACE_GAZE` is
+    /// set, and only for the first few hundred samples. The evidence a filter
+    /// change has to be tuned against.
+    case gaze = "gaze"
   }
 
   private static let path = ProcessInfo.processInfo.environment["SMART_GAZE_LAUNCH_LOG"]
