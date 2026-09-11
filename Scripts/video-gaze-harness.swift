@@ -82,6 +82,7 @@ struct VideoGazeHarness {
 
     var frames = 0, produced = 0, noFace = 0, lowPresence = 0, otherErrors = 0
     var latencies: [Double] = [], xs: [Double] = [], ys: [Double] = []
+    var times: [Double] = []
     var firstErrors: [String] = []
 
     while frames < maxFrames, let sample = output.copyNextSampleBuffer() {
@@ -95,6 +96,7 @@ struct VideoGazeHarness {
         latencies.append((CFAbsoluteTimeGetCurrent() - started) * 1000)
         xs.append(estimate.gaze.x)
         ys.append(estimate.gaze.y)
+        times.append(Double(frames) / 25.0)
         produced += 1
       } catch let error as GazePipelineError {
         switch error {
@@ -136,6 +138,37 @@ struct VideoGazeHarness {
     )
     let nonFinite = xs.filter { !$0.isFinite }.count + ys.filter { !$0.isFinite }.count
     print("non-finite \(nonFinite)")
+
+    // Run the real filter and the real dispersion metric the trigger uses, so the
+    // number reported here is comparable to the shipped threshold rather than a
+    // differently defined spread.
+    let screen = CGSize(
+      width: Double(ProcessInfo.processInfo.environment["SMART_GAZE_SCREEN_W"] ?? "1728") ?? 1728,
+      height: Double(ProcessInfo.processInfo.environment["SMART_GAZE_SCREEN_H"] ?? "1117") ?? 1117)
+    var filter = OneEuroPointFilter()
+    var points: [(CGPoint, Double)] = []
+    for index in xs.indices {
+      let raw = CGPoint(x: xs[index] * screen.width, y: ys[index] * screen.height)
+      points.append((filter.apply(raw, at: times[index]), times[index]))
+    }
+
+    let window = 1.2
+    var dispersions: [Double] = []
+    for end in points.indices {
+      let cutoff = points[end].1 - window
+      let slice = points[...end].filter { $0.1 >= cutoff }
+      guard slice.count > 1 else { continue }
+      let sx = slice.map { $0.0.x }, sy = slice.map { $0.0.y }
+      dispersions.append((sx.max()! - sx.min()!) + (sy.max()! - sy.min()!))
+    }
+    guard !dispersions.isEmpty else { return }
+    print(
+      """
+      windowed dispersion pt (screen \(Int(screen.width))x\(Int(screen.height)), \(window)s window)
+        min \(String(format: "%.1f", dispersions.min()!))  p05 \(String(format: "%.1f", percentile(dispersions, 0.05)))  p25 \(String(format: "%.1f", percentile(dispersions, 0.25)))  median \(String(format: "%.1f", percentile(dispersions, 0.5)))  p95 \(String(format: "%.1f", percentile(dispersions, 0.95)))
+        windows under 160 pt: \(dispersions.filter { $0 < 160 }.count) of \(dispersions.count)
+      """
+    )
     if produced < frames || nonFinite > 0 {
       FileHandle.standardError.write(
         "harness failed: not every frame produced a finite gaze point\n".data(using: .utf8)!)
