@@ -186,23 +186,54 @@ private struct OpenAIMessage: Encodable {
   let content: OpenAIContent
 }
 
+private struct OpenAIThinking: Encodable {
+  let type: String
+}
+
 private struct OpenAIRequest: Encodable {
   let model: String
   let stream: Bool
   let maxTokens: Int
   let messages: [OpenAIMessage]
+  let reasoningEffort: String?
+  let thinking: OpenAIThinking?
 
   enum CodingKeys: String, CodingKey {
     case model
     case stream
     case maxTokens = "max_tokens"
     case messages
+    case reasoningEffort = "reasoning_effort"
+    case thinking
   }
+}
+
+/// How much a reasoning model may think before it answers. The bubble is
+/// read while the user waits, so a description of what is on screen should
+/// not spend seconds deliberating first.
+public enum OpenAIReasoning: Equatable, Sendable {
+  /// Send nothing; the model uses its own default.
+  case modelDefault
+  /// `reasoning_effort: "low"`, the OpenAI field that DeepSeek also honours.
+  case low
+  /// DeepSeek's `thinking: {type: "disabled"}`, which skips the thinking
+  /// phase entirely. Measured on V4.1 Flash through OpenCode Go: about 2.2s
+  /// to a full answer against 3 to 5.5s with thinking on.
+  case off
 }
 
 public enum OpenAIWire: WireFormat {
   public static func requestBody(
     model: String, system: String, prompt: String, imageJPEG: Data, maxOutputTokens: Int
+  ) throws -> Data {
+    try requestBody(
+      model: model, system: system, prompt: prompt, imageJPEG: imageJPEG,
+      maxOutputTokens: maxOutputTokens, reasoning: .modelDefault)
+  }
+
+  public static func requestBody(
+    model: String, system: String, prompt: String, imageJPEG: Data, maxOutputTokens: Int,
+    reasoning: OpenAIReasoning
   ) throws -> Data {
     let request = OpenAIRequest(
       model: model,
@@ -221,7 +252,9 @@ public enum OpenAIWire: WireFormat {
             ),
           ])
         ),
-      ]
+      ],
+      reasoningEffort: reasoning == .low ? "low" : nil,
+      thinking: reasoning == .off ? OpenAIThinking(type: "disabled") : nil
     )
     return try JSONEncoder().encode(request)
   }

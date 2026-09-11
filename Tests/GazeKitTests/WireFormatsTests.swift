@@ -219,3 +219,27 @@ private func sseEvents(_ input: String) -> [String] {
     try OpenAIWire.textDelta(fromEventData: event)
   }
 }
+
+@Test func openAIReasoningControlsAreOnlySentWhenAsked() throws {
+  let jpeg = Data([0xFF, 0xD8, 0xFF, 0xD9])
+  func body(_ reasoning: OpenAIReasoning) throws -> [String: Any] {
+    try #require(
+      try JSONSerialization.jsonObject(
+        with: try OpenAIWire.requestBody(
+          model: "m", system: "S", prompt: "P", imageJPEG: jpeg, maxOutputTokens: 256,
+          reasoning: reasoning)
+      ) as? [String: Any])
+  }
+
+  let plain = try body(.modelDefault)
+  #expect(plain["reasoning_effort"] == nil)
+  #expect(plain["thinking"] == nil)
+
+  let low = try body(.low)
+  #expect(low["reasoning_effort"] as? String == "low")
+  #expect(low["thinking"] == nil)
+
+  let off = try body(.off)
+  #expect(off["reasoning_effort"] == nil)
+  #expect((off["thinking"] as? [String: Any])?["type"] as? String == "disabled")
+}

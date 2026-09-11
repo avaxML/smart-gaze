@@ -946,3 +946,22 @@ struct ProviderTransportTests {
   let event = #"{"choices":[{"delta":{"reasoning_content":"thinking about it"}}]}"#
   #expect(try OpenAIWire.textDelta(fromEventData: event) == nil)
 }
+
+@Test func openCodeGoRequestsSkipTheThinkingPhaseAndPlainOpenAIOnesDoNot() throws {
+  func body(kind: ProviderKind) throws -> [String: Any] {
+    let provider = HTTPProvider(
+      kind: kind, settings: Settings.default.providers[kind]!, secrets: FakeSecrets(value: "k"))
+    let request = try provider.makeRequest(
+      key: "k", imageJPEG: Data([0xFF, 0xD8]), prompt: "p", system: "s")
+    let data = try #require(request.httpBody)
+    return try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+  }
+
+  let opencode = try body(kind: .opencode)
+  #expect((opencode["thinking"] as? [String: Any])?["type"] as? String == "disabled")
+  #expect(opencode["reasoning_effort"] == nil)
+
+  let openai = try body(kind: .openai)
+  #expect(openai["thinking"] == nil)
+  #expect(openai["reasoning_effort"] == nil)
+}
