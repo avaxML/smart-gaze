@@ -2,6 +2,7 @@ import CoreGraphics
 import Foundation
 import GazeKit
 import OverlayUI
+import Perception
 import Providers
 import ScreenCapture
 import Testing
@@ -180,6 +181,84 @@ private func oneByOneJPEG() -> Data {
   #expect(bubble.appendedTokens == ["Hello", ", world."])
   #expect(bubble.finishedCount == 1)
   #expect(await coordinator.completedCaptureCount == 1)
+}
+
+private func openEye() -> EyeLandmarks {
+  EyeLandmarks(points: [
+    CGPoint(x: 0, y: 0),
+    CGPoint(x: 2, y: 3),
+    CGPoint(x: 8, y: 3),
+    CGPoint(x: 10, y: 0),
+    CGPoint(x: 8, y: -3),
+    CGPoint(x: 2, y: -3),
+  ])!
+}
+
+private func closedEye() -> EyeLandmarks {
+  EyeLandmarks(points: [
+    CGPoint(x: 0, y: 0),
+    CGPoint(x: 2, y: 0.2),
+    CGPoint(x: 8, y: 0.2),
+    CGPoint(x: 10, y: 0),
+    CGPoint(x: 8, y: -0.2),
+    CGPoint(x: 2, y: -0.2),
+  ])!
+}
+
+private func faceObservation(eyesClosed: Bool, at timestamp: TimeInterval) -> FaceObservation {
+  let eye = eyesClosed ? closedEye() : openEye()
+  return FaceObservation(
+    boundingBox: CGRect(x: 0, y: 0, width: 1, height: 1),
+    yaw: 0, pitch: 0, roll: 0,
+    leftEye: eye, rightEye: eye,
+    leftPupil: .zero, rightPupil: .zero,
+    timestamp: timestamp)
+}
+
+/// Reproduces the exact defect in issue #87: nothing upstream of
+/// `TriggerMachine` ever produced a `.blink` input, so `doubleBlink` was
+/// selectable and permanently inert. This drives the real chain, a sequence
+/// of `FaceObservation`s through `GazeCoordinator.handleObservation`, into a
+/// `BlinkDetector` it owns, and confirms the resulting event reaches the
+/// trigger machine and fires a capture.
+@MainActor
+@Test func doubleBlinkFromFaceObservationsReachesTheTriggerMachine() async {
+  let started = Signal()
+  let capturer = FakeCapturer {
+    started.signal()
+    return CapturedRegion(jpeg: oneByOneJPEG(), rect: .zero, displayID: CGMainDisplayID())
+  }
+
+  var settings = Settings.default
+  settings.activationMode = .doubleBlink
+
+  let bubble = FakeBubble()
+  let coordinator = GazeCoordinator(
+    settings: settings,
+    gazePipeline: nil,
+    capturer: capturer,
+    bubble: bubble,
+    makeExplanationStream: { _ in nil })
+
+  await coordinator.handleGazeSample(CGPoint(x: 100, y: 100), at: 0.0)
+
+  // First blink: closed for two frames, then open.
+  await coordinator.handleObservation(faceObservation(eyesClosed: false, at: 0.0), at: 0.0)
+  await coordinator.handleObservation(faceObservation(eyesClosed: true, at: 0.1), at: 0.1)
+  await coordinator.handleObservation(faceObservation(eyesClosed: true, at: 0.2), at: 0.2)
+  await coordinator.handleObservation(faceObservation(eyesClosed: false, at: 0.3), at: 0.3)
+
+  // Second blink inside the double-blink window: this is the input that
+  // reaches `TriggerMachine` as `.blink(.doubleBlink, _)`.
+  await coordinator.handleObservation(faceObservation(eyesClosed: true, at: 0.4), at: 0.4)
+  await coordinator.handleObservation(faceObservation(eyesClosed: true, at: 0.5), at: 0.5)
+  await coordinator.handleObservation(faceObservation(eyesClosed: false, at: 0.55), at: 0.55)
+
+  await started.wait()
+  await coordinator.waitUntilCaptureSettled()
+
+  #expect(bubble.shownCount == 1)
+  #expect(bubble.errorMessage == "No provider is configured. Add an API key in Settings.")
 }
 
 private final class Counter: @unchecked Sendable {

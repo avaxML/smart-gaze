@@ -45,6 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     camera.onError = { [weak self] error in self?.presentCameraError(error) }
     settingsModel.onCalibrationChanged = { [weak self] in self?.refreshMenu() }
     camera.onFrame = { [weak self] frame in self?.handleFrame(frame) }
+    camera.onObservation = { [weak self] observation in self?.handleObservation(observation) }
     camera.onFocalLength = { [weak self] pixels in
       let detail = pixels.map { "present \($0)" } ?? "absent"
       LaunchDiagnostics.record(.intrinsicMatrix, detail)
@@ -60,6 +61,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     guard let coordinator else { return }
     let timestamp = ProcessInfo.processInfo.systemUptime
     Task { await coordinator.handleFrame(frame.pixelBuffer, at: timestamp) }
+  }
+
+  /// `camera.onFrame` and `camera.onObservation` both fire once per delivered
+  /// video frame, from the same `AVCaptureVideoDataOutput` callback, so both
+  /// are timestamped off the same clock the gaze samples already use rather
+  /// than the sample buffer's own presentation time, keeping every input
+  /// `TrackingPreview` sees on one monotonic timeline.
+  private func handleObservation(_ observation: FaceObservation?) {
+    guard let coordinator else { return }
+    let timestamp = ProcessInfo.processInfo.systemUptime
+    Task { await coordinator.handleObservation(observation, at: timestamp) }
   }
 
   /// Builds the coordinator and the modifier tap for this session. A missing
