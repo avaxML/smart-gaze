@@ -55,10 +55,53 @@ import Testing
   }
 }
 
+@Test func liveCameraReportsAccessibilityDegradedOnlyWhenCalibrated() {
+  #expect(
+    MenuBarState.presenting(
+      camera: .live, calibrationNeeded: false, isCaptureBusy: false,
+      accessibilityDegraded: true)
+      == .accessibilityDegraded)
+  #expect(
+    MenuBarState.presenting(
+      camera: .live, calibrationNeeded: false, isCaptureBusy: false,
+      accessibilityDegraded: false)
+      == .cameraLive)
+}
+
+@Test func uncalibratedTakesPriorityOverAccessibilityDegraded() {
+  #expect(
+    MenuBarState.presenting(
+      camera: .live, calibrationNeeded: true, isCaptureBusy: false,
+      accessibilityDegraded: true)
+      == .uncalibrated)
+}
+
+@Test func captureBusyOverridesAccessibilityDegraded() {
+  #expect(
+    MenuBarState.presenting(
+      camera: .live, calibrationNeeded: false, isCaptureBusy: true,
+      accessibilityDegraded: true)
+      == .captureBusy)
+}
+
+@Test func accessibilityDegradedHasNoEffectOffTheLiveState() {
+  for camera: CameraController.State in [
+    .off, .waitingForPermission, .permissionDenied, .starting, .timedOut,
+  ] {
+    let withoutDegradation = MenuBarState.presenting(
+      camera: camera, calibrationNeeded: false, isCaptureBusy: false,
+      accessibilityDegraded: false)
+    let withDegradation = MenuBarState.presenting(
+      camera: camera, calibrationNeeded: false, isCaptureBusy: false,
+      accessibilityDegraded: true)
+    #expect(withoutDegradation == withDegradation)
+  }
+}
+
 @Test func everyMenuStateHasADistinctSymbolAndDescription() {
   let allStates: [MenuBarState] = [
     .off, .waitingForPermission, .permissionDenied, .starting, .timedOut, .cameraLive,
-    .uncalibrated, .captureBusy,
+    .uncalibrated, .accessibilityDegraded, .captureBusy,
   ]
   #expect(Set(allStates.map(\.symbolName)).count == allStates.count)
   #expect(Set(allStates.map(\.accessibilityDescription)).count == allStates.count)
@@ -89,6 +132,11 @@ import Testing
 
   #expect(MenuBarState.uncalibrated.symbolName == "scope")
   #expect(MenuBarState.uncalibrated.accessibilityDescription == "SmartGaze needs calibration")
+
+  #expect(MenuBarState.accessibilityDegraded.symbolName == "accessibility")
+  #expect(
+    MenuBarState.accessibilityDegraded.accessibilityDescription
+      == "SmartGaze is running in dwell mode")
 
   #expect(MenuBarState.captureBusy.symbolName == "camera.viewfinder")
   #expect(MenuBarState.captureBusy.accessibilityDescription == "SmartGaze is capturing")

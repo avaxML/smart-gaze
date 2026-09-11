@@ -8,6 +8,7 @@ enum MenuBarState: Equatable, Sendable {
   case timedOut
   case cameraLive
   case uncalibrated
+  case accessibilityDegraded
   case captureBusy
 
   var symbolName: String {
@@ -19,6 +20,7 @@ enum MenuBarState: Equatable, Sendable {
     case .timedOut: "exclamationmark.triangle.fill"
     case .cameraLive: "video.fill"
     case .uncalibrated: "scope"
+    case .accessibilityDegraded: "accessibility"
     case .captureBusy: "camera.viewfinder"
     }
   }
@@ -32,16 +34,24 @@ enum MenuBarState: Equatable, Sendable {
     case .timedOut: "SmartGaze camera did not start"
     case .cameraLive: "SmartGaze camera is live"
     case .uncalibrated: "SmartGaze needs calibration"
+    case .accessibilityDegraded: "SmartGaze is running in dwell mode"
     case .captureBusy: "SmartGaze is capturing"
     }
   }
 
   /// The single place that folds camera state, whether calibration exists,
+  /// whether the modifier-held activation mode fell back to passive dwell,
   /// and whether an explanation capture is in flight into one presentation.
   /// Pure and AVFoundation-free, so it is testable with literal camera
   /// states and no real camera.
+  ///
+  /// When the camera is live, an outstanding calibration takes priority
+  /// over reporting the dwell fallback: tracking is unusable without
+  /// calibration regardless of activation mode, so that is the more urgent
+  /// thing to surface.
   static func presenting(
-    camera: CameraController.State, calibrationNeeded: Bool, isCaptureBusy: Bool
+    camera: CameraController.State, calibrationNeeded: Bool, isCaptureBusy: Bool,
+    accessibilityDegraded: Bool = false
   ) -> MenuBarState {
     if isCaptureBusy { return .captureBusy }
     switch camera {
@@ -50,7 +60,10 @@ enum MenuBarState: Equatable, Sendable {
     case .permissionDenied: return .permissionDenied
     case .starting: return .starting
     case .timedOut: return .timedOut
-    case .live: return calibrationNeeded ? .uncalibrated : .cameraLive
+    case .live:
+      if calibrationNeeded { return .uncalibrated }
+      if accessibilityDegraded { return .accessibilityDegraded }
+      return .cameraLive
     }
   }
 }

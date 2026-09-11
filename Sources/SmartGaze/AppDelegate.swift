@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   private var coordinator: GazeCoordinator?
   private var modifierMonitor: ModifierMonitor?
+  private var accessibilityDegraded = false
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     NSApp.setActivationPolicy(.accessory)
@@ -45,25 +46,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       Task { await self?.coordinator?.updateVerticalFieldOfView(degrees: degrees) }
     }
     refreshMenu()
-
-    if !settingsModel.hasCalibration {
-      offerFirstRunCalibration()
-    }
-  }
-
-  /// Offers calibration, never forces it. A user who declines keeps running
-  /// uncalibrated rather than being blocked from using the app.
-  private func offerFirstRunCalibration() {
-    let alert = NSAlert()
-    alert.messageText = "Calibrate SmartGaze?"
-    alert.informativeText =
-      "Without calibration, gaze tracking is not usable. Calibration takes under a minute: look at nine dots, then four more to check the result."
-    alert.alertStyle = .informational
-    alert.addButton(withTitle: "Calibrate Now")
-    alert.addButton(withTitle: "Not Now")
-    if alert.runModal() == .alertFirstButtonReturn {
-      settingsWindowController.startCalibration()
-    }
   }
 
   private func handleFrame(_ frame: CameraFrame) {
@@ -92,9 +74,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // being built for `.modifierHeld` and then never hearing from it.
     let needsAccessibility = settings.activationMode == .modifierHeld
     let accessibilityGranted = AXIsProcessTrusted()
-    if needsAccessibility && !accessibilityGranted {
+    accessibilityDegraded = needsAccessibility && !accessibilityGranted
+    if accessibilityDegraded {
       settings.activationMode = .passiveDwell
-      presentAccessibilityDegradedAlert()
+      refreshMenu()
     }
 
     let coordinator = GazeCoordinator(
@@ -122,7 +105,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     if monitor.start() == .started {
       modifierMonitor = monitor
     } else {
-      presentAccessibilityDegradedAlert()
+      accessibilityDegraded = true
+      refreshMenu()
     }
   }
 
@@ -133,16 +117,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       Task { await coordinator.stop() }
     }
     coordinator = nil
-  }
-
-  private func presentAccessibilityDegradedAlert() {
-    let alert = NSAlert()
-    alert.messageText = "SmartGaze is running in dwell mode"
-    alert.informativeText =
-      "Accessibility permission is not granted, so the modifier key cannot be detected. Grant SmartGaze Accessibility access in System Settings › Privacy & Security to use hold-to-activate; until then, capture fires from a sustained gaze instead."
-    alert.alertStyle = .informational
-    alert.addButton(withTitle: "OK")
-    alert.runModal()
   }
 
   private func configureMainMenu() {
@@ -222,7 +196,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     MenuBarState.presenting(
       camera: camera.state,
       calibrationNeeded: !settingsModel.hasCalibration,
-      isCaptureBusy: captureActivity.isBusy)
+      isCaptureBusy: captureActivity.isBusy,
+      accessibilityDegraded: accessibilityDegraded)
   }
 
   private func refreshMenu() {
@@ -244,6 +219,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     case .uncalibrated:
       actionItem.title = "Calibrate Now"
       actionItem.action = #selector(calibrateNow)
+      actionItem.isHidden = false
+    case .accessibilityDegraded:
+      actionItem.title = "Open Accessibility Settings…"
+      actionItem.action = #selector(openAccessibilitySettings)
       actionItem.isHidden = false
     default:
       actionItem.action = nil
@@ -276,6 +255,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   @objc private func calibrateNow() {
     settingsWindowController.startCalibration()
+  }
+
+  @objc private func openAccessibilitySettings() {
+    guard
+      let url = URL(
+        string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+    else { return }
+    NSWorkspace.shared.open(url)
   }
 
   @objc private func quit() {
