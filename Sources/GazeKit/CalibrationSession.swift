@@ -89,13 +89,17 @@ public struct CalibrationResult: Equatable, Sendable {
   public let observedVerticalSpanPoints: Double
   public let observedDispersionPoints: Double
   public let acceptedBurstCount: Int
+  /// The display the targets were shown on. The map is only meaningful there,
+  /// so tracking must be bounded by it rather than by every attached display.
+  public let bounds: CGRect
 
   public init(
     map: CalibrationMap, horizontalErrorPoints: Double, verticalErrorPoints: Double,
     distanceCentimeters: Double, observedHorizontalSpanPoints: Double = 0,
     observedVerticalSpanPoints: Double = 0, observedDispersionPoints: Double = 0,
-    acceptedBurstCount: Int = 0
+    acceptedBurstCount: Int = 0, bounds: CGRect = .null
   ) {
+    self.bounds = bounds
     self.map = map
     self.horizontalErrorPoints = horizontalErrorPoints
     self.verticalErrorPoints = verticalErrorPoints
@@ -273,7 +277,8 @@ public struct CalibrationRun: Sendable {
       observedHorizontalSpanPoints: CalibrationRun.median(horizontalSpans),
       observedVerticalSpanPoints: CalibrationRun.median(verticalSpans),
       observedDispersionPoints: CalibrationRun.median(dispersions),
-      acceptedBurstCount: acceptedSpans.count)
+      acceptedBurstCount: acceptedSpans.count,
+      bounds: bounds)
     stage = .finished(result)
     return .completed(result)
   }

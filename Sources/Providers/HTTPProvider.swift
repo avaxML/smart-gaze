@@ -13,7 +13,8 @@ enum ProviderWire {
   }
 
   func requestBody(
-    model: String, system: String, prompt: String, imageJPEG: Data, maxOutputTokens: Int
+    model: String, system: String, prompt: String, imageJPEG: Data, maxOutputTokens: Int,
+    reasoning: OpenAIReasoning = .modelDefault
   ) throws -> Data {
     switch self {
     case .gemini:
@@ -23,7 +24,7 @@ enum ProviderWire {
     case .openAI:
       try OpenAIWire.requestBody(
         model: model, system: system, prompt: prompt, imageJPEG: imageJPEG,
-        maxOutputTokens: maxOutputTokens)
+        maxOutputTokens: maxOutputTokens, reasoning: reasoning)
     case .anthropic:
       try AnthropicWire.requestBody(
         model: model, system: system, prompt: prompt, imageJPEG: imageJPEG,
@@ -178,6 +179,14 @@ public final class HTTPProvider: LLMProvider, @unchecked Sendable {
     return url
   }
 
+  /// OpenCode Go serves DeepSeek V4.1 Flash, a reasoning model. Describing a
+  /// screenshot does not need the thinking phase and the user is waiting on
+  /// the bubble, so it is switched off there. Other OpenAI-shaped endpoints
+  /// are left to their own defaults; not every one accepts the field.
+  static func reasoning(for kind: ProviderKind) -> OpenAIReasoning {
+    kind == .opencode ? .off : .modelDefault
+  }
+
   func makeRequest(key: String, imageJPEG: Data, prompt: String, system: String) throws
     -> URLRequest
   {
@@ -187,7 +196,8 @@ public final class HTTPProvider: LLMProvider, @unchecked Sendable {
       system: system,
       prompt: prompt,
       imageJPEG: imageJPEG,
-      maxOutputTokens: maximumOutputTokens
+      maxOutputTokens: maximumOutputTokens,
+      reasoning: HTTPProvider.reasoning(for: kind)
     )
     var request = URLRequest(url: try endpointURL())
     request.httpMethod = "POST"

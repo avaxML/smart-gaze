@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private let camera = CameraController()
   private let captureActivity = CaptureActivity()
   private let bubble = BubbleController()
+  private let reticle = ReticleController()
   private var settingsModel: SettingsModel!
 
   private var coordinator: GazeCoordinator?
@@ -96,22 +97,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       LaunchDiagnostics.record(.pipelineReady, "failed \(error)")
     }
 
-    // Checked before the coordinator is built so its `TrackingPreview` is
-    // configured for the mode that will actually receive input, rather than
-    // being built for `.modifierHeld` and then never hearing from it.
+    // Without Accessibility the modifier is never seen, so the app stays in
+    // the mode the user chose and fires nothing. Silently switching to dwell
+    // here once turned a hold-to-ask app into one that captured on every
+    // glance, and the user never knew why. The menu says what is missing.
     let needsAccessibility = settings.activationMode == .modifierHeld
     let accessibilityGranted = AXIsProcessTrusted()
     accessibilityDegraded = needsAccessibility && !accessibilityGranted
-    if accessibilityDegraded {
-      settings.activationMode = .passiveDwell
-      refreshMenu()
-    }
+    if accessibilityDegraded { refreshMenu() }
 
     let coordinator = GazeCoordinator(
       settings: settings,
       gazePipeline: pipeline,
       capturer: ScreenCaptureKitCapturer(denylist: settings.deniedApps),
       bubble: bubble,
+      reticle: reticle,
       makeExplanationStream: { [weak settingsModel] jpeg in
         await MainActor.run { settingsModel?.makeExplanationStream(imageJPEG: jpeg) }
       })

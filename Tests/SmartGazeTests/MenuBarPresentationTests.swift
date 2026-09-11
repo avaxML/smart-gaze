@@ -136,7 +136,7 @@ import Testing
   #expect(MenuBarState.accessibilityDegraded.symbolName == "accessibility")
   #expect(
     MenuBarState.accessibilityDegraded.accessibilityDescription
-      == "SmartGaze is running in dwell mode")
+      == "SmartGaze cannot see the modifier key until Accessibility is granted")
 
   #expect(MenuBarState.captureBusy.symbolName == "camera.viewfinder")
   #expect(MenuBarState.captureBusy.accessibilityDescription == "SmartGaze is capturing")
@@ -185,4 +185,11 @@ import Testing
   // the action vanished with it.
   let state = MenuBarState.presenting(camera: .live, calibrationNeeded: false, isCaptureBusy: false)
   #expect(state == .cameraLive)
+}
+
+@Test func accessibilityDegradedSaysPausedNotDwell() {
+  // The app never switches modes on the user's behalf; the status must not
+  // claim a mode the user did not pick.
+  #expect(MenuBarState.accessibilityDegraded.menuStatus == "Paused, Accessibility not granted")
+  #expect(!MenuBarState.accessibilityDegraded.menuStatus.lowercased().contains("dwell"))
 }

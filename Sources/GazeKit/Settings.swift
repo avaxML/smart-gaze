@@ -40,6 +40,7 @@ public struct Settings: Codable, Equatable, Sendable {
   public var deniedApps: AppDenylist
   public var calibrationMap: CalibrationMap?
   public var calibrationDistanceCentimeters: Double?
+  public var calibratedBounds: CGRect?
 
   private enum CodingKeys: String, CodingKey {
     case dwellSeconds
@@ -53,6 +54,7 @@ public struct Settings: Codable, Equatable, Sendable {
     case deniedApps
     case calibrationMap
     case calibrationDistanceCentimeters
+    case calibratedBounds
   }
 
   public init(from decoder: Decoder) throws {
@@ -71,6 +73,7 @@ public struct Settings: Codable, Equatable, Sendable {
     calibrationMap = try? container.decode(CalibrationMap.self, forKey: .calibrationMap)
     calibrationDistanceCentimeters = try? container.decode(
       Double.self, forKey: .calibrationDistanceCentimeters)
+    calibratedBounds = try? container.decode(CGRect.self, forKey: .calibratedBounds)
   }
 
   public init(
@@ -84,7 +87,8 @@ public struct Settings: Codable, Equatable, Sendable {
     providers: [ProviderKind: ProviderSettings],
     deniedApps: AppDenylist = AppDenylist(),
     calibrationMap: CalibrationMap? = nil,
-    calibrationDistanceCentimeters: Double? = nil
+    calibrationDistanceCentimeters: Double? = nil,
+    calibratedBounds: CGRect? = nil
   ) {
     self.dwellSeconds = dwellSeconds
     self.dispersionThreshold = dispersionThreshold
@@ -97,10 +101,11 @@ public struct Settings: Codable, Equatable, Sendable {
     self.deniedApps = deniedApps
     self.calibrationMap = calibrationMap
     self.calibrationDistanceCentimeters = calibrationDistanceCentimeters
+    self.calibratedBounds = calibratedBounds
   }
 
   public static let `default` = Settings(
-    dwellSeconds: 0.6,
+    dwellSeconds: 1.2,
     dispersionThreshold: 160,
     activationMode: .modifierHeld,
     modifierKey: .option,

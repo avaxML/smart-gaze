@@ -61,6 +61,17 @@ private final class FakeBubble: BubblePresenting {
   }
 }
 
+@MainActor
+private final class FakeReticle: ReticlePresenting {
+  private(set) var shown: [(point: CGPoint, size: CGSize)] = []
+  private(set) var hideCount = 0
+  private(set) var flashed: [CGRect] = []
+
+  func show(centredOn point: CGPoint, size: CGSize) { shown.append((point, size)) }
+  func hide() { hideCount += 1 }
+  func flash(capturedRect rect: CGRect) { flashed.append(rect) }
+}
+
 private func oneByOneJPEG() -> Data {
   Data([0xFF, 0xD8, 0xFF, 0xD9])
 }
@@ -216,11 +227,13 @@ private func closedEye() -> EyeLandmarks {
   ])!
 }
 
-private func faceObservation(eyesClosed: Bool, at timestamp: TimeInterval) -> FaceObservation {
+private func faceObservation(
+  eyesClosed: Bool, yaw: Double = 0, at timestamp: TimeInterval
+) -> FaceObservation {
   let eye = eyesClosed ? closedEye() : openEye()
   return FaceObservation(
     boundingBox: CGRect(x: 0, y: 0, width: 1, height: 1),
-    yaw: 0, pitch: 0, roll: 0,
+    yaw: yaw, pitch: 0, roll: 0,
     leftEye: eye, rightEye: eye,
     leftPupil: .zero, rightPupil: .zero,
     timestamp: timestamp)
@@ -362,4 +375,112 @@ private final class Counter: @unchecked Sendable {
 
   #expect(result.displayID == 1)
   #expect(result.localPoint == CGPoint(x: 1728, y: 0))
+}
+
+@MainActor
+@Test func theReticleFollowsTheArmedGazeAndHidesOnRelease() async {
+  let reticle = FakeReticle()
+  let coordinator = GazeCoordinator(
+    settings: .default,
+    gazePipeline: nil,
+    capturer: FakeCapturer {
+      CapturedRegion(jpeg: oneByOneJPEG(), rect: .zero, displayID: CGMainDisplayID())
+    },
+    bubble: FakeBubble(),
+    reticle: reticle,
+    captureSize: CGSize(width: 600, height: 400),
+    makeExplanationStream: { _ in nil })
+
+  await coordinator.apply([
+    .showReticle(at: CGPoint(x: 300, y: 200)),
+    .showReticle(at: CGPoint(x: 310, y: 205)),
+    .hideReticle,
+  ])
+
+  #expect(reticle.shown.count == 2)
+  #expect(reticle.shown.first?.point == CGPoint(x: 300, y: 200))
+  #expect(reticle.shown.last?.point == CGPoint(x: 310, y: 205))
+  #expect(reticle.shown.first?.size == CGSize(width: 600, height: 400))
+  #expect(reticle.hideCount == 1)
+}
+
+@MainActor
+@Test func aCaptureFlashesTheExactRectThatWasSent() async {
+  let reticle = FakeReticle()
+  let sent = CGRect(x: 100, y: 50, width: 600, height: 400)
+  let coordinator = GazeCoordinator(
+    settings: .default,
+    gazePipeline: nil,
+    capturer: FakeCapturer {
+      CapturedRegion(jpeg: oneByOneJPEG(), rect: sent, displayID: CGMainDisplayID())
+    },
+    bubble: FakeBubble(),
+    reticle: reticle,
+    makeExplanationStream: { _ in nil })
+  await coordinator.start()
+
+  await coordinator.apply([.capture(at: CGPoint(x: 400, y: 250))])
+  await coordinator.waitUntilCaptureSettled()
+
+  // The main display's bounds start at the origin, so the global rect equals
+  // the display-local rect the capturer reported.
+  #expect(reticle.flashed == [sent])
+}
+
+@Test func trackingIsBoundedByTheCalibratedDisplayPlusAMargin() {
+  let calibrated = CGRect(x: 0, y: 0, width: 1728, height: 1117)
+  let union = CGRect(x: -2560, y: -300, width: 4288, height: 1440)
+
+  let bounds = GazeCoordinator.trackingBounds(calibrated: calibrated, fallback: union)
+
+  #expect(bounds == CGRect(x: -150, y: -150, width: 2028, height: 1417))
+  #expect(!bounds.contains(CGPoint(x: -1280, y: 420)))
+  #expect(bounds.contains(CGPoint(x: -100, y: 500)))
+}
+
+@Test func withoutACalibratedDisplayTrackingFallsBackToEveryDisplay() {
+  let union = CGRect(x: -2560, y: -300, width: 4288, height: 1440)
+  #expect(GazeCoordinator.trackingBounds(calibrated: nil, fallback: union) == union)
+  #expect(GazeCoordinator.trackingBounds(calibrated: .null, fallback: union) == union)
+}
+
+/// A head turned towards a second monitor must not dwell, even when the
+/// map happens to project the estimate somewhere inside the calibrated
+/// display. Straightening the head restores dwell without a restart.
+@MainActor
+@Test func aTurnedHeadSuppressesDwellUntilItStraightens() async {
+  let captureCalls = Counter()
+  let capturer = FakeCapturer {
+    captureCalls.increment()
+    return CapturedRegion(jpeg: oneByOneJPEG(), rect: .zero, displayID: CGMainDisplayID())
+  }
+  var settings = Settings.default
+  settings.activationMode = .passiveDwell
+  settings.calibratedBounds = CGRect(x: 0, y: 0, width: 2000, height: 1200)
+  let coordinator = GazeCoordinator(
+    settings: settings,
+    gazePipeline: nil,
+    capturer: capturer,
+    bubble: FakeBubble(),
+    makeExplanationStream: { _ in nil })
+  await coordinator.start()
+
+  let point = CGPoint(x: 700, y: 400)
+  var time = 0.0
+  await coordinator.handleObservation(faceObservation(eyesClosed: false, yaw: 0.6, at: 0), at: 0)
+  while time < 2.0 {
+    await coordinator.handleGazeSample(point, at: time)
+    time += 0.05
+  }
+  await coordinator.waitUntilCaptureSettled()
+  #expect(captureCalls.value == 0)
+
+  await coordinator.handleObservation(
+    faceObservation(eyesClosed: false, yaw: 0.05, at: time), at: time)
+  while time < 4.0 {
+    await coordinator.handleGazeSample(point, at: time)
+    time += 0.05
+  }
+  await coordinator.waitUntilCaptureSettled()
+  #expect(captureCalls.value == 1)
 }

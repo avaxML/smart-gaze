@@ -55,6 +55,16 @@ fi
 
 plutil -lint "$APP/Contents/Info.plist" > /dev/null
 
-codesign --force --sign - --timestamp=none "$APP"
+# TCC identifies an ad-hoc signed app by its cdhash, which changes on every
+# build, so Screen Recording and Camera grants would be lost each rebuild. A
+# local self-signed identity (see make-signing-identity.sh) gives a designated
+# requirement that survives rebuilds.
+SIGN_IDENTITY="${SMART_GAZE_SIGN_IDENTITY:-SmartGaze Local Development}"
+if security find-identity -p codesigning 2>/dev/null | grep -q "\"$SIGN_IDENTITY\""; then
+  codesign --force --sign "$SIGN_IDENTITY" --timestamp=none "$APP"
+else
+  echo "note: no '$SIGN_IDENTITY' identity found, signing ad-hoc; TCC grants will not survive rebuilds" >&2
+  codesign --force --sign - --timestamp=none "$APP"
+fi
 
 echo "$REPO_ROOT/$APP"

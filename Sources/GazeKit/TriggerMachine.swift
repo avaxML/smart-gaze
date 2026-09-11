@@ -21,6 +21,9 @@ public enum TriggerInput: Equatable, Sendable {
   case blink(BlinkEvent, TimeInterval)
   case faceLost(TimeInterval)
   case dismissed(TimeInterval)
+  /// The bubble a capture produced is no longer on screen, however it went
+  /// away. Until this arrives nothing else may fire.
+  case presentationEnded(TimeInterval)
 }
 
 public enum TriggerEffect: Equatable, Sendable {
@@ -36,6 +39,9 @@ public struct TriggerMachine: Sendable {
   private let blinkRateCeiling: Double
 
   public private(set) var state: TriggerState = .idle
+  /// True from the moment a capture fires until `.presentationEnded`. A
+  /// visible explanation must never be replaced by a gaze that wandered.
+  public private(set) var isPresenting = false
 
   private var lastGazePoint: CGPoint?
   private var blinkTimestamps: [TimeInterval] = []
@@ -68,7 +74,11 @@ public struct TriggerMachine: Sendable {
       lastGazePoint = nil
       return leaveToIdle(emitting: .hideReticle)
     case .dismissed:
+      isPresenting = false
       return leaveToIdle(emitting: .dismissBubble)
+    case .presentationEnded:
+      isPresenting = false
+      return []
     }
   }
 
@@ -115,7 +125,7 @@ public struct TriggerMachine: Sendable {
   }
 
   private mutating func handleModifierDown(at time: TimeInterval) -> [TriggerEffect] {
-    guard mode == .modifierHeld, state == .idle else { return [] }
+    guard mode == .modifierHeld, state == .idle, !isPresenting else { return [] }
     state = .settling(since: time)
     return []
   }
@@ -150,8 +160,9 @@ public struct TriggerMachine: Sendable {
   }
 
   private mutating func attemptFire(at region: CGPoint, now: TimeInterval) -> [TriggerEffect] {
-    guard blinkRate(at: now) <= blinkRateCeiling else { return [] }
+    guard !isPresenting, blinkRate(at: now) <= blinkRateCeiling else { return [] }
 
+    isPresenting = true
     state = .firing(region: region)
     pendingCooldownUntil = now + cooldownDuration
     return [.capture(at: region)]
@@ -170,6 +181,7 @@ public struct TriggerMachine: Sendable {
     case .blink(_, let time): time
     case .faceLost(let time): time
     case .dismissed(let time): time
+    case .presentationEnded(let time): time
     }
   }
 }

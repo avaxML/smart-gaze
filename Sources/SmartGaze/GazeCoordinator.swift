@@ -38,6 +38,7 @@ actor GazeCoordinator {
   private var gazeFilter = OneEuroPointFilter()
   private var faceLoss = FaceLossDebounce()
   private var blinkDetector = BlinkDetector()
+  private var headPose = HeadPoseGate()
   private let calibration: CalibrationMap?
 
   private let gazePipeline: GazePipeline?
@@ -47,6 +48,7 @@ actor GazeCoordinator {
   private let makeExplanationStream: @Sendable (Data) async -> AsyncThrowingStream<String, Error>?
 
   private let bubble: any BubblePresenting
+  private let reticle: (any ReticlePresenting)?
 
   private var activeCaptureTask: Task<Void, Never>?
   private(set) var completedCaptureCount = 0
@@ -58,6 +60,7 @@ actor GazeCoordinator {
     gazePipeline: GazePipeline?,
     capturer: any RegionCapturing,
     bubble: any BubblePresenting,
+    reticle: (any ReticlePresenting)? = nil,
     captureSize: CGSize = CGSize(width: 600, height: 400),
     makeExplanationStream:
       @escaping @Sendable (Data) async -> AsyncThrowingStream<
@@ -67,13 +70,15 @@ actor GazeCoordinator {
     self.tracking = TrackingPreview(
       mode: settings.activationMode,
       cooldown: 3.0,
-      bounds: GazeCoordinator.unionOfActiveDisplays(),
+      bounds: GazeCoordinator.trackingBounds(
+        calibrated: settings.calibratedBounds, fallback: GazeCoordinator.unionOfActiveDisplays()),
       dwellWindow: settings.dwellSeconds,
       dispersionThreshold: settings.dispersionThreshold)
     self.calibration = settings.calibrationMap
     self.gazePipeline = gazePipeline
     self.capturer = capturer
     self.bubble = bubble
+    self.reticle = reticle
     self.captureSize = captureSize
     self.bubbleSize = CGSize(width: settings.bubbleWidth, height: settings.bubbleMaxHeight)
     self.makeExplanationStream = makeExplanationStream
@@ -129,6 +134,13 @@ actor GazeCoordinator {
   /// `isTracking` and `lastGazePoint`) without a live `GazePipeline`, the
   /// way `apply` is exposed for driving capture behavior directly.
   func handleGazeSample(_ point: CGPoint, at timestamp: TimeInterval) async {
+    // A turned head is treated like a lost face: the estimate the model
+    // produces is off the calibrated display, and often off any display.
+    if headPose.isBlocked {
+      gazeFilter.reset()
+      await apply(tracking.handle(.trackingLost(timestamp)))
+      return
+    }
     await apply(tracking.handle(.sample(point, timestamp)))
   }
 
@@ -138,6 +150,7 @@ actor GazeCoordinator {
   /// gaze pipeline itself produced an estimate this frame.
   func handleObservation(_ observation: FaceObservation?, at timestamp: TimeInterval) async {
     guard let observation else { return }
+    headPose.update(yawRadians: observation.yaw)
     let left = eyeAspectRatio(observation.leftEye)
     let right = eyeAspectRatio(observation.rightEye)
     guard let event = blinkDetector.add(left: left, right: right, at: timestamp) else { return }
@@ -166,9 +179,11 @@ actor GazeCoordinator {
         beginCapture(at: point)
       case .dismissBubble:
         await MainActor.run { [weak self] in self?.bubble.dismiss() }
-      case .showReticle, .hideReticle:
-        // No reticle view exists yet in `OverlayUI`; nothing to render.
-        continue
+      case .showReticle(let point):
+        let size = captureSize
+        await MainActor.run { [weak self] in self?.reticle?.show(centredOn: point, size: size) }
+      case .hideReticle:
+        await MainActor.run { [weak self] in self?.reticle?.hide() }
       }
     }
   }
@@ -194,6 +209,7 @@ actor GazeCoordinator {
   }
 
   private func handleDismiss() {
+    tracking.handle(.presentationEnded(ProcessInfo.processInfo.systemUptime))
     guard activeCaptureTask != nil else { return }
     activeCaptureTask?.cancel()
     activeCaptureTask = nil
@@ -208,6 +224,10 @@ actor GazeCoordinator {
       try Task.checkCancellation()
       let region = try await capturer.capture(request)
       try Task.checkCancellation()
+
+      let capturedGlobal = region.rect.offsetBy(
+        dx: CGDisplayBounds(displayID).minX, dy: CGDisplayBounds(displayID).minY)
+      await MainActor.run { [weak self] in self?.reticle?.flash(capturedRect: capturedGlobal) }
 
       let handle = await presentBubble(anchoredToDisplayLocal: region.rect, displayID: displayID)
 
@@ -281,6 +301,18 @@ actor GazeCoordinator {
   /// The union, in Quartz global display space, of every active display.
   /// Used as the tracking bounds so a gaze sample on a secondary display is
   /// not rejected as out of bounds.
+  /// The calibration map is only valid on the display it was fitted on. A
+  /// glance at another monitor projects outside that display and is rejected
+  /// as out of bounds instead of dwelling somewhere the map never covered.
+  /// The margin absorbs the map's edge error without letting the other
+  /// display's centre through.
+  nonisolated static func trackingBounds(
+    calibrated: CGRect?, fallback: CGRect, margin: CGFloat = 150
+  ) -> CGRect {
+    guard let calibrated, !calibrated.isNull, !calibrated.isEmpty else { return fallback }
+    return calibrated.insetBy(dx: -margin, dy: -margin)
+  }
+
   nonisolated static func unionOfActiveDisplays() -> CGRect {
     var displayCount: UInt32 = 0
     guard CGGetActiveDisplayList(0, nil, &displayCount) == .success, displayCount > 0 else {

@@ -64,9 +64,24 @@ private func cluster(
   #expect(preview.state == .cooldown(until: 4.0))
 
   _ = cluster(&preview, at: CGPoint(x: 100, y: 100), from: 2.7, count: 3)
+  preview.handle(.presentationEnded(2.95))
   _ = cluster(&preview, at: CGPoint(x: 30, y: 30), from: 3.0, count: 11)
   #expect(preview.localTriggerCount == 2)
   #expect(preview.lastLocalCapturePoint == CGPoint(x: 30, y: 30))
+}
+
+@Test func withoutPresentationEndedTheCooldownExpiryAloneDoesNotRefire() {
+  var preview = TrackingPreview(
+    mode: .passiveDwell, cooldown: 3.0, dwellWindow: 1.0, dispersionThreshold: 100)
+
+  _ = cluster(&preview, at: CGPoint(x: 10, y: 10), from: 0.0, count: 11)
+  #expect(preview.localTriggerCount == 1)
+  #expect(preview.isPresenting)
+
+  _ = cluster(&preview, at: CGPoint(x: 100, y: 100), from: 4.0, count: 3)
+  _ = cluster(&preview, at: CGPoint(x: 30, y: 30), from: 4.5, count: 11)
+  #expect(preview.localTriggerCount == 1)
+  #expect(preview.state == .idle)
 }
 
 @Test func doubleBlinkFiresAtLastGazePoint() {

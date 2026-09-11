@@ -68,7 +68,12 @@ private func fixation(at point: CGPoint, startingAt start: TimeInterval) -> Fixa
   #expect(machine.handle(.fixation(fixation(at: point, startingAt: 1.5))) == [])
   #expect(machine.state == .cooldown(until: 4.0))
 
-  #expect(machine.handle(.fixation(fixation(at: point, startingAt: 4.1))) == [.capture(at: point)])
+  // The cooldown has expired but the bubble is still up, so nothing fires.
+  #expect(machine.handle(.fixation(fixation(at: point, startingAt: 4.1))) == [])
+  #expect(machine.state == .idle)
+
+  _ = machine.handle(.presentationEnded(5.0))
+  #expect(machine.handle(.fixation(fixation(at: point, startingAt: 5.1))) == [.capture(at: point)])
   #expect(machine.state == .firing(region: point))
 }
 
@@ -224,4 +229,42 @@ private func fixation(at point: CGPoint, startingAt start: TimeInterval) -> Fixa
   #expect(machine.handle(.gaze(CGPoint(x: 50, y: 60), 2.1)) == [])
   #expect(machine.handle(.blink(.doubleBlink, 2.2)) == [.capture(at: CGPoint(x: 50, y: 60))])
   #expect(machine.state == .firing(region: CGPoint(x: 50, y: 60)))
+}
+
+@Test func aVisibleBubbleBlocksFurtherDwellCapturesUntilItGoesAway() {
+  var machine = TriggerMachine(mode: .passiveDwell, cooldown: 1.0)
+  let first = CGPoint(x: 100, y: 100)
+  let second = CGPoint(x: 900, y: 600)
+
+  #expect(machine.handle(.fixation(fixation(at: first, startingAt: 0.0))) == [.capture(at: first)])
+  #expect(machine.isPresenting)
+
+  // Well past the cooldown, a fresh fixation elsewhere must not replace the bubble.
+  #expect(machine.handle(.fixation(fixation(at: second, startingAt: 10.0))) == [])
+  #expect(machine.state == .idle)
+  #expect(machine.isPresenting)
+
+  #expect(machine.handle(.presentationEnded(12.0)) == [])
+  #expect(!machine.isPresenting)
+  #expect(
+    machine.handle(.fixation(fixation(at: second, startingAt: 13.0))) == [.capture(at: second)])
+}
+
+@Test func aVisibleBubbleBlocksArmingInModifierMode() {
+  var machine = TriggerMachine(mode: .modifierHeld, cooldown: 1.0)
+  let point = CGPoint(x: 5, y: 5)
+
+  _ = machine.handle(.modifierDown(0.0))
+  _ = machine.handle(.gaze(point, 0.1))
+  #expect(machine.handle(.modifierUp(0.2)) == [.capture(at: point), .hideReticle])
+
+  #expect(machine.handle(.modifierDown(5.0)) == [])
+  #expect(machine.state == .idle)
+  #expect(machine.handle(.gaze(point, 5.1)) == [])
+  #expect(machine.handle(.modifierUp(5.2)) == [])
+
+  _ = machine.handle(.dismissed(6.0))
+  #expect(!machine.isPresenting)
+  #expect(machine.handle(.modifierDown(7.0)) == [])
+  #expect(machine.state == .settling(since: 7.0))
 }
