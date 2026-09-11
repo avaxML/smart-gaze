@@ -14,7 +14,11 @@ public struct CalibrationTargetPlan: Equatable, Sendable {
     let mid = 0.5
     let high = 1 - inset
     let coordinates = [low, mid, high]
-    fitTargets = coordinates.flatMap { y in coordinates.map { x in NormalizedGazePoint(x: x, y: y) }
+    // Column by column, and within each column top, bottom, then middle. A
+    // posture that drifts over the run then lands on every row in turn instead
+    // of aliasing into the vertical gain the way a top to bottom sweep does.
+    fitTargets = coordinates.flatMap { x in
+      [low, high, mid].map { y in NormalizedGazePoint(x: x, y: y) }
     }
 
     let validationLow = low + (mid - low) / 2

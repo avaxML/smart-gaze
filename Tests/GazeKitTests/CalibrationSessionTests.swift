@@ -15,8 +15,14 @@ private let truthYCoefficients = [200.0, 400.0, 0.0, 0.0, 0.0, 0.0]
   let plan = CalibrationTargetPlan(inset: 0.1)
   #expect(plan.fitTargets.count == 9)
   #expect(plan.fitTargets[0] == NormalizedGazePoint(x: 0.1, y: 0.1))
-  #expect(plan.fitTargets[4] == NormalizedGazePoint(x: 0.5, y: 0.5))
-  #expect(plan.fitTargets[8] == NormalizedGazePoint(x: 0.9, y: 0.9))
+  #expect(plan.fitTargets[1] == NormalizedGazePoint(x: 0.1, y: 0.9))
+  #expect(plan.fitTargets[5] == NormalizedGazePoint(x: 0.5, y: 0.5))
+  #expect(plan.fitTargets[8] == NormalizedGazePoint(x: 0.9, y: 0.5))
+  // No two consecutive targets share a row, so a drifting posture cannot
+  // masquerade as a vertical gain.
+  for pair in zip(plan.fitTargets, plan.fitTargets.dropFirst()) {
+    #expect(pair.0.y != pair.1.y)
+  }
 }
 
 @Test func targetGridInsetsEveryFitPointFromTheEdges() {
