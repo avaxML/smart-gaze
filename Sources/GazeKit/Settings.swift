@@ -124,8 +124,8 @@ public struct Settings: Codable, Equatable, Sendable {
         keychainAccount: .anthropicKey
       ),
       .opencode: ProviderSettings(
-        model: "deepseek-v4-flash-vision-exp",
-        baseURL: URL(string: "https://opencode.ai/zen/v1")!,
+        model: "deepseek-v4.1-flash",
+        baseURL: URL(string: "https://opencode.ai/zen/go/v1")!,
         keychainAccount: .openCodeKey
       ),
       .proxy: ProviderSettings(

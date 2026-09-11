@@ -899,3 +899,50 @@ struct ProviderTransportTests {
     #expect(values == ["hi"])
   }
 }
+
+@Test func openCodeGoRequestsCarryTheSessionAndUserAgentTheGatewayRequires() throws {
+  let provider = HTTPProvider(
+    kind: .opencode,
+    settings: Settings.default.providers[.opencode]!,
+    secrets: FakeSecrets(value: "k"))
+  let request = try provider.makeRequest(
+    key: "k", imageJPEG: Data([0xFF, 0xD8]), prompt: "p", system: "s")
+
+  let headers = request.allHTTPHeaderFields ?? [:]
+  #expect(headers["Authorization"] == "Bearer k")
+  #expect(headers["User-Agent"] == "smart-gaze/0.1.0")
+  let session = headers["x-opencode-session"] ?? ""
+  #expect(UUID(uuidString: session) != nil)
+  #expect(session == session.lowercased())
+  #expect(request.url?.absoluteString == "https://opencode.ai/zen/go/v1/chat/completions")
+}
+
+@Test func theSessionIDIsStableAcrossRequestsFromOneProvider() throws {
+  let provider = HTTPProvider(
+    kind: .opencode,
+    settings: Settings.default.providers[.opencode]!,
+    secrets: FakeSecrets(value: "k"))
+  let first = try provider.makeRequest(
+    key: "k", imageJPEG: Data([0xFF, 0xD8]), prompt: "a", system: "s")
+  let second = try provider.makeRequest(
+    key: "k", imageJPEG: Data([0xFF, 0xD8]), prompt: "b", system: "s")
+  #expect(first.value(forHTTPHeaderField: "x-opencode-session") != nil)
+  #expect(
+    first.value(forHTTPHeaderField: "x-opencode-session")
+      == second.value(forHTTPHeaderField: "x-opencode-session"))
+}
+
+@Test func plainOpenAIRequestsDoNotLeakTheOpenCodeSessionHeader() throws {
+  let provider = HTTPProvider(
+    kind: .openai,
+    settings: Settings.default.providers[.openai]!,
+    secrets: FakeSecrets(value: "k"))
+  let request = try provider.makeRequest(
+    key: "k", imageJPEG: Data([0xFF, 0xD8]), prompt: "p", system: "s")
+  #expect(request.value(forHTTPHeaderField: "x-opencode-session") == nil)
+}
+
+@Test func aReasoningDeltaWithNoContentIsSkippedNotTreatedAsText() throws {
+  let event = #"{"choices":[{"delta":{"reasoning_content":"thinking about it"}}]}"#
+  #expect(try OpenAIWire.textDelta(fromEventData: event) == nil)
+}
