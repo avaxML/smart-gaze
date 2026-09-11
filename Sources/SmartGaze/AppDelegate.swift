@@ -49,7 +49,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       self?.refreshMenu()
     }
     camera.onError = { [weak self] error in self?.presentCameraError(error) }
-    settingsModel.onCalibrationChanged = { [weak self] in self?.refreshMenu() }
+    settingsModel.onCalibrationChanged = { [weak self] in self?.calibrationDidChange() }
     camera.onFrame = { [weak self] frame in self?.handleFrame(frame) }
     camera.onObservation = { [weak self] observation in self?.handleObservation(observation) }
     camera.onFocalLength = { [weak self] pixels in
@@ -138,6 +138,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       accessibilityDegraded = true
       refreshMenu()
     }
+  }
+
+  /// The coordinator holds the calibration it was built with. A calibration
+  /// finished while the camera is live must replace it, or the app keeps
+  /// tracking on the old map, or on none at all when it started uncalibrated,
+  /// and the modifier appears dead.
+  private func calibrationDidChange() {
+    if coordinator != nil {
+      stopGazePipeline()
+      startGazePipeline()
+    }
+    refreshMenu()
   }
 
   private func stopGazePipeline() {
