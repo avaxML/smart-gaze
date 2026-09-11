@@ -21,6 +21,7 @@ private struct FakeCapturer: RegionCapturing {
 private final class FakeBubble: BubblePresenting {
   var onDismiss: (() -> Void)?
   private(set) var shownCount = 0
+  private(set) var shownSizes: [CGSize] = []
   private(set) var appendedTokens: [String] = []
   private(set) var errorMessage: String?
   private(set) var finishedCount = 0
@@ -29,6 +30,7 @@ private final class FakeBubble: BubblePresenting {
   @discardableResult
   func show(anchoredTo region: CGRect, within bounds: CGRect, size: CGSize) -> PresentationHandle {
     shownCount += 1
+    shownSizes.append(size)
     nextGeneration += 1
     return PresentationHandle.forTesting(generation: nextGeneration)
   }
@@ -267,4 +269,28 @@ private final class Counter: @unchecked Sendable {
 
   func increment() { lock.withLock { storage += 1 } }
   var value: Int { lock.withLock { storage } }
+}
+
+@MainActor
+@Test func theConfiguredBubbleSizeReachesThePresentation() async {
+  var settings = Settings.default
+  settings.bubbleWidth = 512
+  settings.bubbleMaxHeight = 300
+
+  let bubble = FakeBubble()
+  let coordinator = GazeCoordinator(
+    settings: settings,
+    gazePipeline: nil,
+    capturer: FakeCapturer {
+      CapturedRegion(jpeg: oneByOneJPEG(), rect: .zero, displayID: CGMainDisplayID())
+    },
+    bubble: bubble,
+    makeExplanationStream: { _ in nil })
+  await coordinator.start()
+
+  await coordinator.apply([.capture(at: CGPoint(x: 5, y: 5))])
+  await coordinator.waitUntilCaptureSettled()
+
+  #expect(bubble.shownSizes.first?.width == 512)
+  #expect(bubble.shownSizes.first?.height == 300)
 }
