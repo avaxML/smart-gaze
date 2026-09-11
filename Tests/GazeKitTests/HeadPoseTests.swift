@@ -190,6 +190,39 @@ private let nonCoplanarPoints: [SIMD3<Double>] = [
   #expect(origin.centimetres.y < 0)
 }
 
+@Test func measuredFocalLengthOverridesTheAssumedFieldOfView() throws {
+  let corners = (SIMD2(400.0, 500.0), SIMD2(400.0, 500.0))
+  let otherCorners = (SIMD2(600.0, 500.0), SIMD2(600.0, 500.0))
+  let imageSize = SIMD2<Double>(1000, 1000)
+
+  let assumed = try metricFaceOrigin(
+    leftEyeCorners: corners, rightEyeCorners: otherCorners, rotation: identityRotation,
+    imageSize: imageSize)
+  let measured = try metricFaceOrigin(
+    leftEyeCorners: corners, rightEyeCorners: otherCorners, rotation: identityRotation,
+    imageSize: imageSize, verticalFocalLengthPixels: 1000)
+
+  #expect(abs(measured.centimetres.z - assumed.centimetres.z) > 1)
+  #expect(abs(measured.centimetres.z - 31.5) <= 1e-9)
+}
+
+@Test func nonPositiveFocalLengthFallsBackToTheAssumedFieldOfView() throws {
+  let corners = (SIMD2(400.0, 500.0), SIMD2(400.0, 500.0))
+  let otherCorners = (SIMD2(600.0, 500.0), SIMD2(600.0, 500.0))
+  let imageSize = SIMD2<Double>(1000, 1000)
+
+  let assumed = try metricFaceOrigin(
+    leftEyeCorners: corners, rightEyeCorners: otherCorners, rotation: identityRotation,
+    imageSize: imageSize)
+
+  for malformed: Double in [0, -866, .nan, .infinity] {
+    let fallback = try metricFaceOrigin(
+      leftEyeCorners: corners, rightEyeCorners: otherCorners, rotation: identityRotation,
+      imageSize: imageSize, verticalFocalLengthPixels: malformed)
+    #expect(fallback.centimetres.z == assumed.centimetres.z)
+  }
+}
+
 @Test func zeroPixelIPDThrowsDegenerateConfiguration() {
   #expect(throws: HeadPoseError.degenerateConfiguration) {
     try metricFaceOrigin(

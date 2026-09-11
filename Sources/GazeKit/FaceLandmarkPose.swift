@@ -21,7 +21,7 @@ public enum FaceLandmarkError: Error, Equatable {
 public func headPoseInputs(
   landmarks: [SIMD3<Double>],
   imageSize: SIMD2<Double>,
-  verticalFieldOfViewDegrees: Double = 60
+  verticalFocalLengthPixels: Double? = nil
 ) throws -> HeadPoseInputs {
   guard landmarks.count == CanonicalFaceModel.vertexCount else {
     throw FaceLandmarkError.wrongLandmarkCount(
@@ -51,7 +51,7 @@ public func headPoseInputs(
     rightEyeCorners: rightEyeCorners,
     rotation: rotation,
     imageSize: imageSize,
-    verticalFieldOfViewDegrees: verticalFieldOfViewDegrees
+    verticalFocalLengthPixels: verticalFocalLengthPixels
   )
   guard origin.centimetres.z > 0 else {
     throw FaceLandmarkError.faceNotInFrontOfCamera(depthCentimetres: origin.centimetres.z)

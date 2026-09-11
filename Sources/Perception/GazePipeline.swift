@@ -39,25 +39,27 @@ public actor GazePipeline {
 
   private let faceMesh: FaceMeshEstimator
   private let blazeGaze: BlazeGazeEstimator
-  private var verticalFieldOfViewDegrees: Double
+  private var verticalFocalLengthPixels: Double?
 
   public init(
     faceMeshModelURL: URL,
     blazeGazeModelURL: URL,
     computeUnits: MLComputeUnits = .all,
-    verticalFieldOfViewDegrees: Double = 60
+    verticalFocalLengthPixels: Double? = nil
   ) throws {
     self.faceMesh = try FaceMeshEstimator(modelURL: faceMeshModelURL, computeUnits: computeUnits)
     self.blazeGaze = try BlazeGazeEstimator(modelURL: blazeGazeModelURL, computeUnits: computeUnits)
-    self.verticalFieldOfViewDegrees = verticalFieldOfViewDegrees
+    self.verticalFocalLengthPixels = verticalFocalLengthPixels
   }
 
-  /// Called once the camera reports its actual field of view, which is only known
-  /// after the capture session has configured its device and is not available at
-  /// `init` time. Ignored if the pipeline already heard from the camera.
-  public func updateVerticalFieldOfView(degrees: Double) {
-    guard degrees.isFinite, degrees > 0 else { return }
-    verticalFieldOfViewDegrees = degrees
+  /// Called once the camera reports a real focal length, read from its capture
+  /// buffer's own intrinsic matrix attachment, which is only known after the
+  /// first frame has arrived and is not available at `init` time. A malformed
+  /// reading is ignored, leaving the pipeline on the assumed field of view
+  /// `metricFaceOrigin` falls back to.
+  public func updateVerticalFocalLength(pixels: Double) {
+    guard pixels.isFinite, pixels > 0 else { return }
+    verticalFocalLengthPixels = pixels
   }
 
   public func gazePoint(from pixelBuffer: sending CVPixelBuffer) async throws -> GazeEstimate {
@@ -96,7 +98,7 @@ public actor GazePipeline {
     let headPose = try headPoseInputs(
       landmarks: fullFrame.pixelSpace,
       imageSize: SIMD2(Double(frameSize.width), Double(frameSize.height)),
-      verticalFieldOfViewDegrees: verticalFieldOfViewDegrees)
+      verticalFocalLengthPixels: verticalFocalLengthPixels)
 
     let blazeInput = try BlazeGazeInput(
       eyeBandRGB: eyeBand,

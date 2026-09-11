@@ -14,6 +14,7 @@ enum LaunchDiagnostics {
     case launchCompleted = "launch-completed"
     case cameraState = "camera-state"
     case pipelineReady = "pipeline-ready"
+    case intrinsicMatrix = "intrinsic-matrix"
   }
 
   private static let path = ProcessInfo.processInfo.environment["SMART_GAZE_LAUNCH_LOG"]
