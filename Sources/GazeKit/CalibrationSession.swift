@@ -89,6 +89,9 @@ public struct CalibrationResult: Equatable, Sendable {
   public let observedVerticalSpanPoints: Double
   public let observedDispersionPoints: Double
   public let acceptedBurstCount: Int
+  /// Mean face origin over the accepted fit bursts, camera frame in cm. The
+  /// pose the map is valid at; `HeadTranslationCorrection` measures from it.
+  public let faceOriginCentimeters: SIMD3<Double>?
   /// The display the targets were shown on. The map is only meaningful there,
   /// so tracking must be bounded by it rather than by every attached display.
   public let bounds: CGRect
@@ -97,9 +100,11 @@ public struct CalibrationResult: Equatable, Sendable {
     map: CalibrationMap, horizontalErrorPoints: Double, verticalErrorPoints: Double,
     distanceCentimeters: Double, observedHorizontalSpanPoints: Double = 0,
     observedVerticalSpanPoints: Double = 0, observedDispersionPoints: Double = 0,
-    acceptedBurstCount: Int = 0, bounds: CGRect = .null
+    acceptedBurstCount: Int = 0, bounds: CGRect = .null,
+    faceOriginCentimeters: SIMD3<Double>? = nil
   ) {
     self.bounds = bounds
+    self.faceOriginCentimeters = faceOriginCentimeters
     self.map = map
     self.horizontalErrorPoints = horizontalErrorPoints
     self.verticalErrorPoints = verticalErrorPoints
@@ -155,6 +160,8 @@ public struct CalibrationRun: Sendable {
   /// rather than the user looking somewhere else. This is the measurement #21
   /// needs to replace a guessed dispersion threshold.
   private var acceptedSpans: [(horizontal: Double, vertical: Double)] = []
+  private var latestFaceOrigin: SIMD3<Double>?
+  private var fitOrigins: [SIMD3<Double>] = []
 
   public init(
     plan: CalibrationTargetPlan,
@@ -201,6 +208,14 @@ public struct CalibrationRun: Sendable {
     distanceCentimeters = centimeters
   }
 
+  public mutating func recordFaceOrigin(_ centimeters: SIMD3<Double>) {
+    latestFaceOrigin = centimeters
+  }
+
+  /// Face origins captured with each accepted fit burst, in order. Exposed so
+  /// a run can be checked for posture drift across the target sequence.
+  public var acceptedFitOrigins: [SIMD3<Double>] { fitOrigins }
+
   private mutating func submitFitBurst(
     _ samples: [NormalizedGazePoint], at index: Int
   ) -> CalibrationSubmitOutcome {
@@ -210,6 +225,7 @@ public struct CalibrationRun: Sendable {
       return .retryTarget(dispersion: dispersion)
     case .accepted(let centroid, let horizontalSpan, let verticalSpan):
       acceptedSpans.append((horizontal: horizontalSpan, vertical: verticalSpan))
+      if let latestFaceOrigin { fitOrigins.append(latestFaceOrigin) }
       let screenPoint = CalibrationTargetPlan.screenPoint(for: plan.fitTargets[index], in: bounds)
       fitSamples.append(CalibrationSample(gaze: centroid, screenPoint: screenPoint))
 
@@ -278,7 +294,9 @@ public struct CalibrationRun: Sendable {
       observedVerticalSpanPoints: CalibrationRun.median(verticalSpans),
       observedDispersionPoints: CalibrationRun.median(dispersions),
       acceptedBurstCount: acceptedSpans.count,
-      bounds: bounds)
+      bounds: bounds,
+      faceOriginCentimeters: fitOrigins.isEmpty
+        ? nil : fitOrigins.reduce(SIMD3<Double>.zero, +) / Double(fitOrigins.count))
     stage = .finished(result)
     return .completed(result)
   }

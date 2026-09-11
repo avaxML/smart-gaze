@@ -143,7 +143,9 @@ public func metricFaceOrigin(
 
   let eyeMid = (leftMid + rightMid) / 2
   let originX = (eyeMid.x - imageSize.x / 2) * depthCm / focalPx
-  let originY = (imageSize.y / 2 - eyeMid.y) * depthCm / focalPx
+  // Camera frame as BlazeGaze was trained on it: x image-right, y image-down,
+  // z away from the camera. The port this came from flipped y to up.
+  let originY = (eyeMid.y - imageSize.y / 2) * depthCm / focalPx
 
   return MetricFaceOrigin(centimetres: SIMD3<Double>(originX, originY, depthCm))
 }

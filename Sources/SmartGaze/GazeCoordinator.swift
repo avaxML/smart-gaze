@@ -40,6 +40,7 @@ actor GazeCoordinator {
   private var blinkDetector = BlinkDetector()
   private var headPose = HeadPoseGate()
   private let calibration: CalibrationMap?
+  private let headTranslation: HeadTranslationCorrection?
 
   private let gazePipeline: GazePipeline?
   private let capturer: any RegionCapturing
@@ -75,6 +76,7 @@ actor GazeCoordinator {
       dwellWindow: settings.dwellSeconds,
       dispersionThreshold: settings.dispersionThreshold)
     self.calibration = settings.calibrationMap
+    self.headTranslation = settings.headTranslationCorrection
     self.gazePipeline = gazePipeline
     self.capturer = capturer
     self.bubble = bubble
@@ -117,7 +119,10 @@ actor GazeCoordinator {
       let estimate = try await gazePipeline.gazePoint(from: pixelBuffer)
       faceLoss.recordSuccess()
       handleHeadYaw(estimate.headYawRadians)
-      let screenPoint = calibration.project(estimate.gaze)
+      let projected = calibration.project(estimate.gaze)
+      let screenPoint =
+        headTranslation?.correct(projected, faceOriginCentimeters: estimate.faceOriginCentimeters)
+        ?? projected
       let filtered = gazeFilter.apply(screenPoint, at: timestamp)
       await handleGazeSample(filtered, at: timestamp)
     } catch is CancellationError {

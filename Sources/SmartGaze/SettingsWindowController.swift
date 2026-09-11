@@ -23,15 +23,32 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     // One display, not the union. Looking between monitors is a head turn of
     // tens of degrees, outside anything the model was trained on, and the first
     // live run's cross-display row was the one with no horizontal signal.
-    let bounds = CGDisplayBounds(CGMainDisplayID())
+    let displayID = CGMainDisplayID()
+    let bounds = CGDisplayBounds(displayID)
+    let pointsPerCentimeter = SettingsWindowController.pointsPerCentimeter(
+      bounds: bounds, physicalMillimetres: CGDisplayScreenSize(displayID))
     let coordinator = CalibrationCoordinator(bounds: bounds)
     let controller = CalibrationWindowController(coordinator: coordinator)
     calibrationWindowController = controller
     controller.present { [weak self] result in
       self?.calibrationWindowController = nil
       guard let result else { return }
-      self?.model.applyCalibrationResult(result)
+      self?.model.applyCalibrationResult(result, pointsPerCentimeter: pointsPerCentimeter)
     }
+  }
+
+  /// Points per centimetre of the calibrated display. `CGDisplayScreenSize`
+  /// returns zero for a display with no EDID size, which yields nil here and
+  /// switches the head translation correction off instead of scaling by zero.
+  nonisolated static func pointsPerCentimeter(bounds: CGRect, physicalMillimetres: CGSize)
+    -> SIMD2<Double>?
+  {
+    guard physicalMillimetres.width > 0, physicalMillimetres.height > 0,
+      bounds.width > 0, bounds.height > 0
+    else { return nil }
+    return SIMD2(
+      bounds.width / (physicalMillimetres.width / 10),
+      bounds.height / (physicalMillimetres.height / 10))
   }
 
   func show() {
