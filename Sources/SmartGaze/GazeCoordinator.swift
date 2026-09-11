@@ -38,6 +38,7 @@ actor GazeCoordinator {
   private var gazeFilter = OneEuroPointFilter()
   private var faceLoss = FaceLossDebounce()
   private var blinkDetector = BlinkDetector()
+  private var headPose = HeadPoseGate()
   private let calibration: CalibrationMap?
 
   private let gazePipeline: GazePipeline?
@@ -133,6 +134,13 @@ actor GazeCoordinator {
   /// `isTracking` and `lastGazePoint`) without a live `GazePipeline`, the
   /// way `apply` is exposed for driving capture behavior directly.
   func handleGazeSample(_ point: CGPoint, at timestamp: TimeInterval) async {
+    // A turned head is treated like a lost face: the estimate the model
+    // produces is off the calibrated display, and often off any display.
+    if headPose.isBlocked {
+      gazeFilter.reset()
+      await apply(tracking.handle(.trackingLost(timestamp)))
+      return
+    }
     await apply(tracking.handle(.sample(point, timestamp)))
   }
 
@@ -142,6 +150,7 @@ actor GazeCoordinator {
   /// gaze pipeline itself produced an estimate this frame.
   func handleObservation(_ observation: FaceObservation?, at timestamp: TimeInterval) async {
     guard let observation else { return }
+    headPose.update(yawRadians: observation.yaw)
     let left = eyeAspectRatio(observation.leftEye)
     let right = eyeAspectRatio(observation.rightEye)
     guard let event = blinkDetector.add(left: left, right: right, at: timestamp) else { return }
