@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var coordinator: GazeCoordinator?
   private var modifierMonitor: ModifierMonitor?
   private var accessibilityDegraded = false
+  private var accessibilityWatch: Timer?
   private var modelsMissing = false
 
   func applicationDidFinishLaunching(_ notification: Notification) {
@@ -107,7 +108,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let needsAccessibility = settings.activationMode == .modifierHeld
     let accessibilityGranted = AXIsProcessTrusted()
     accessibilityDegraded = needsAccessibility && !accessibilityGranted
-    if accessibilityDegraded { refreshMenu() }
+    if accessibilityDegraded {
+      refreshMenu()
+      watchForAccessibilityGrant()
+    }
 
     let coordinator = GazeCoordinator(
       settings: settings,
@@ -121,9 +125,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     self.coordinator = coordinator
     Task { await coordinator.start() }
 
+    LaunchDiagnostics.record(
+      .modifier,
+      "mode=\(settings.activationMode.rawValue) accessibility=\(accessibilityGranted ? "granted" : "denied")"
+    )
     guard needsAccessibility, accessibilityGranted else { return }
     let monitor = ModifierMonitor(modifierKey: settings.modifierKey) { [weak self] down, time in
       guard let self else { return }
+      LaunchDiagnostics.record(.modifier, down ? "down" : "up")
       Task {
         if down {
           await self.coordinator?.handleModifierDown(at: time)
@@ -133,8 +142,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       }
     }
     if monitor.start() == .started {
+      LaunchDiagnostics.record(.modifier, "tap started key=\(settings.modifierKey.rawValue)")
       modifierMonitor = monitor
     } else {
+      LaunchDiagnostics.record(.modifier, "tap failed")
       accessibilityDegraded = true
       refreshMenu()
     }
@@ -152,7 +163,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     refreshMenu()
   }
 
+  /// A grant made in System Settings does not notify the app. Poll the trust
+  /// flag while degraded and rebuild the pipeline when it flips, so the user
+  /// does not have to quit and relaunch after clicking the switch.
+  private func watchForAccessibilityGrant() {
+    accessibilityWatch?.invalidate()
+    accessibilityWatch = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+      MainActor.assumeIsolated {
+        guard let self, AXIsProcessTrusted() else { return }
+        self.accessibilityWatch?.invalidate()
+        self.accessibilityWatch = nil
+        LaunchDiagnostics.record(.modifier, "accessibility granted while running")
+        if self.coordinator != nil {
+          self.stopGazePipeline()
+          self.startGazePipeline()
+        }
+        self.refreshMenu()
+      }
+    }
+  }
+
   private func stopGazePipeline() {
+    accessibilityWatch?.invalidate()
+    accessibilityWatch = nil
     modifierMonitor?.stop()
     modifierMonitor = nil
     if let coordinator {
@@ -317,6 +350,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   @objc private func openAccessibilitySettings() {
+    // The prompting variant registers the app in the Accessibility list so the
+    // user only has to flip the switch, instead of finding the bundle by hand.
+    // The key is the C constant `kAXTrustedCheckOptionPrompt`, spelled out
+    // because the imported global is not concurrency-safe under Swift 6.
+    let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+    _ = AXIsProcessTrustedWithOptions(options)
     guard
       let url = URL(
         string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
