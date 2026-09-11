@@ -47,7 +47,7 @@ public enum FaceCropGeometry {
     let topLeftYPx = height - Double(visionBoundingBox.origin.y) * height - heightPx
 
     let center = CGPoint(x: originXPx + widthPx / 2, y: topLeftYPx + heightPx / 2)
-    let side = max(widthPx, heightPx) * expansionFactor
+    let side = min(max(widthPx, heightPx) * expansionFactor, width, height)
     guard side.isFinite, side > 0 else { return nil }
 
     return clampedCaptureRect(

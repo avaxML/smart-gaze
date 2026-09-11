@@ -60,6 +60,34 @@ private func rectIsClose(_ lhs: CGRect, _ rhs: CGRect, tolerance: Double = 1e-9)
   #expect(crop.minY == 0)
 }
 
+@Test func largeFaceBoxInAWideFrameYieldsASquareCrop() throws {
+  let box = CGRect(x: 0, y: 0, width: 0.9, height: 0.9)
+  let frame = CGSize(width: 1280, height: 720)
+
+  let crop = try #require(
+    FaceCropGeometry.expandedFaceCrop(visionBoundingBox: box, frameSize: frame))
+
+  // widthPx = 1152, heightPx = 648, raw side = 1152 * 1.5 = 1728, clamped to
+  // min(1728, 1280, 720) = 720 before the independent-axis clamp runs, so the
+  // 1280-wide frame cannot stretch the crop into a 1280x720 rectangle.
+  let expected = CGRect(x: 216, y: 0, width: 720, height: 720)
+  #expect(rectIsClose(crop, expected))
+}
+
+@Test func largeFaceBoxInATallFrameYieldsASquareCrop() throws {
+  let box = CGRect(x: 0, y: 0, width: 0.9, height: 0.9)
+  let frame = CGSize(width: 720, height: 1280)
+
+  let crop = try #require(
+    FaceCropGeometry.expandedFaceCrop(visionBoundingBox: box, frameSize: frame))
+
+  // widthPx = 648, heightPx = 1152, raw side = 1152 * 1.5 = 1728, clamped to
+  // min(1728, 720, 1280) = 720 before the independent-axis clamp runs, so the
+  // 1280-tall frame cannot stretch the crop into a 720x1280 rectangle.
+  let expected = CGRect(x: 0, y: 344, width: 720, height: 720)
+  #expect(rectIsClose(crop, expected))
+}
+
 @Test func zeroOrNegativeFrameSizeIsRejected() {
   let box = CGRect(x: 0.1, y: 0.1, width: 0.2, height: 0.2)
   #expect(FaceCropGeometry.expandedFaceCrop(visionBoundingBox: box, frameSize: .zero) == nil)

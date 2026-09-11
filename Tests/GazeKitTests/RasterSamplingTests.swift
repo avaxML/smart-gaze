@@ -16,7 +16,7 @@ private func distance(_ lhs: SIMD3<Float>, _ rhs: SIMD3<Float>) -> Float {
 }
 
 private func fullRegion(width: Int, height: Int) -> CGRect {
-  CGRect(x: -0.5, y: -0.5, width: Double(width), height: Double(height))
+  CGRect(x: 0, y: 0, width: Double(width), height: Double(height))
 }
 
 private func makeSource(width: Int, height: Int, rgb: [Float]) throws -> ArrayPixelSource {
@@ -134,10 +134,10 @@ private let graded4x4 = (0..<48).map { Float($0) / 48 }
     CGPoint(x: 0, y: 3),
   ]
   let destinationCorners = [
-    CGPoint(x: 0.5, y: 0.5),
-    CGPoint(x: 3.5, y: 0.5),
-    CGPoint(x: 3.5, y: 3.5),
-    CGPoint(x: 0.5, y: 3.5),
+    CGPoint(x: 0, y: 0),
+    CGPoint(x: 3, y: 0),
+    CGPoint(x: 3, y: 3),
+    CGPoint(x: 0, y: 3),
   ]
   let transform = try #require(
     ProjectiveTransform(source: sourceCorners, destination: destinationCorners))
