@@ -7,6 +7,15 @@ import OverlayUI
 import Perception
 import ScreenCapture
 
+// `FaceObservation.leftEye` and `.rightEye` are Vision's own landmarks, built
+// in `VisionMapping.imagePoint` relative to `VNFaceObservation.boundingBox`.
+// That is the same full-image normalized space `FaceObservation.boundingBox`
+// itself lives in, and it comes from a request Vision runs independently of
+// `GazePipeline`'s face-mesh crop. `eyeAspectRatio` only needs both eyes in
+// one consistent space, which this already is, so blink detection reads
+// straight off `FaceObservation` and never touches `GazePipeline`'s
+// crop-to-frame landmark mapping.
+
 /// Owns the trigger state the camera queue and the main thread both feed, so
 /// no external synchronization is needed between a modifier-key event and a
 /// camera frame landing at the same moment.
@@ -28,6 +37,7 @@ actor GazeCoordinator {
   private var tracking: TrackingPreview
   private var gazeFilter = OneEuroPointFilter()
   private var faceLoss = FaceLossDebounce()
+  private var blinkDetector = BlinkDetector()
   private let calibration: CalibrationMap?
 
   private let gazePipeline: GazePipeline?
@@ -101,7 +111,7 @@ actor GazeCoordinator {
       faceLoss.recordSuccess()
       let screenPoint = calibration.project(estimate.gaze)
       let filtered = gazeFilter.apply(screenPoint, at: timestamp)
-      await apply(tracking.handle(.sample(filtered, timestamp)))
+      await handleGazeSample(filtered, at: timestamp)
     } catch is CancellationError {
       return
     } catch {
@@ -110,6 +120,26 @@ actor GazeCoordinator {
         await apply(tracking.handle(.trackingLost(timestamp)))
       }
     }
+  }
+
+  /// Feeds a resolved screen-space gaze point straight into tracking.
+  /// Internal rather than private so a test can arm `TrackingPreview` (set
+  /// `isTracking` and `lastGazePoint`) without a live `GazePipeline`, the
+  /// way `apply` is exposed for driving capture behavior directly.
+  func handleGazeSample(_ point: CGPoint, at timestamp: TimeInterval) async {
+    await apply(tracking.handle(.sample(point, timestamp)))
+  }
+
+  /// Turns a camera-queue face observation into a blink signal. Both eyes'
+  /// landmarks come from `FaceObservation`, not `GazePipeline` (see the note
+  /// at the top of this file), so this runs independently of whether the
+  /// gaze pipeline itself produced an estimate this frame.
+  func handleObservation(_ observation: FaceObservation?, at timestamp: TimeInterval) async {
+    guard let observation else { return }
+    let left = eyeAspectRatio(observation.leftEye)
+    let right = eyeAspectRatio(observation.rightEye)
+    guard let event = blinkDetector.add(left: left, right: right, at: timestamp) else { return }
+    await apply(tracking.handle(.blink(event, timestamp)))
   }
 
   // MARK: - Global modifier input
