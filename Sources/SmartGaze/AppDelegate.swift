@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private let camera = CameraController()
   private let captureActivity = CaptureActivity()
   private let bubble = BubbleController()
+  private let reticle = ReticleController()
   private var settingsModel: SettingsModel!
 
   private var coordinator: GazeCoordinator?
@@ -112,6 +113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       gazePipeline: pipeline,
       capturer: ScreenCaptureKitCapturer(denylist: settings.deniedApps),
       bubble: bubble,
+      reticle: reticle,
       makeExplanationStream: { [weak settingsModel] jpeg in
         await MainActor.run { settingsModel?.makeExplanationStream(imageJPEG: jpeg) }
       })

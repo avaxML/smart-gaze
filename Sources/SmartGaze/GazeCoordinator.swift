@@ -47,6 +47,7 @@ actor GazeCoordinator {
   private let makeExplanationStream: @Sendable (Data) async -> AsyncThrowingStream<String, Error>?
 
   private let bubble: any BubblePresenting
+  private let reticle: (any ReticlePresenting)?
 
   private var activeCaptureTask: Task<Void, Never>?
   private(set) var completedCaptureCount = 0
@@ -58,6 +59,7 @@ actor GazeCoordinator {
     gazePipeline: GazePipeline?,
     capturer: any RegionCapturing,
     bubble: any BubblePresenting,
+    reticle: (any ReticlePresenting)? = nil,
     captureSize: CGSize = CGSize(width: 600, height: 400),
     makeExplanationStream:
       @escaping @Sendable (Data) async -> AsyncThrowingStream<
@@ -74,6 +76,7 @@ actor GazeCoordinator {
     self.gazePipeline = gazePipeline
     self.capturer = capturer
     self.bubble = bubble
+    self.reticle = reticle
     self.captureSize = captureSize
     self.bubbleSize = CGSize(width: settings.bubbleWidth, height: settings.bubbleMaxHeight)
     self.makeExplanationStream = makeExplanationStream
@@ -166,9 +169,11 @@ actor GazeCoordinator {
         beginCapture(at: point)
       case .dismissBubble:
         await MainActor.run { [weak self] in self?.bubble.dismiss() }
-      case .showReticle, .hideReticle:
-        // No reticle view exists yet in `OverlayUI`; nothing to render.
-        continue
+      case .showReticle(let point):
+        let size = captureSize
+        await MainActor.run { [weak self] in self?.reticle?.show(centredOn: point, size: size) }
+      case .hideReticle:
+        await MainActor.run { [weak self] in self?.reticle?.hide() }
       }
     }
   }
@@ -208,6 +213,10 @@ actor GazeCoordinator {
       try Task.checkCancellation()
       let region = try await capturer.capture(request)
       try Task.checkCancellation()
+
+      let capturedGlobal = region.rect.offsetBy(
+        dx: CGDisplayBounds(displayID).minX, dy: CGDisplayBounds(displayID).minY)
+      await MainActor.run { [weak self] in self?.reticle?.flash(capturedRect: capturedGlobal) }
 
       let handle = await presentBubble(anchoredToDisplayLocal: region.rect, displayID: displayID)
 

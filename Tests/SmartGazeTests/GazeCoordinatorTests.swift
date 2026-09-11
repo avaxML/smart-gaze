@@ -61,6 +61,17 @@ private final class FakeBubble: BubblePresenting {
   }
 }
 
+@MainActor
+private final class FakeReticle: ReticlePresenting {
+  private(set) var shown: [(point: CGPoint, size: CGSize)] = []
+  private(set) var hideCount = 0
+  private(set) var flashed: [CGRect] = []
+
+  func show(centredOn point: CGPoint, size: CGSize) { shown.append((point, size)) }
+  func hide() { hideCount += 1 }
+  func flash(capturedRect rect: CGRect) { flashed.append(rect) }
+}
+
 private func oneByOneJPEG() -> Data {
   Data([0xFF, 0xD8, 0xFF, 0xD9])
 }
@@ -362,4 +373,54 @@ private final class Counter: @unchecked Sendable {
 
   #expect(result.displayID == 1)
   #expect(result.localPoint == CGPoint(x: 1728, y: 0))
+}
+
+@MainActor
+@Test func theReticleFollowsTheArmedGazeAndHidesOnRelease() async {
+  let reticle = FakeReticle()
+  let coordinator = GazeCoordinator(
+    settings: .default,
+    gazePipeline: nil,
+    capturer: FakeCapturer {
+      CapturedRegion(jpeg: oneByOneJPEG(), rect: .zero, displayID: CGMainDisplayID())
+    },
+    bubble: FakeBubble(),
+    reticle: reticle,
+    captureSize: CGSize(width: 600, height: 400),
+    makeExplanationStream: { _ in nil })
+
+  await coordinator.apply([
+    .showReticle(at: CGPoint(x: 300, y: 200)),
+    .showReticle(at: CGPoint(x: 310, y: 205)),
+    .hideReticle,
+  ])
+
+  #expect(reticle.shown.count == 2)
+  #expect(reticle.shown.first?.point == CGPoint(x: 300, y: 200))
+  #expect(reticle.shown.last?.point == CGPoint(x: 310, y: 205))
+  #expect(reticle.shown.first?.size == CGSize(width: 600, height: 400))
+  #expect(reticle.hideCount == 1)
+}
+
+@MainActor
+@Test func aCaptureFlashesTheExactRectThatWasSent() async {
+  let reticle = FakeReticle()
+  let sent = CGRect(x: 100, y: 50, width: 600, height: 400)
+  let coordinator = GazeCoordinator(
+    settings: .default,
+    gazePipeline: nil,
+    capturer: FakeCapturer {
+      CapturedRegion(jpeg: oneByOneJPEG(), rect: sent, displayID: CGMainDisplayID())
+    },
+    bubble: FakeBubble(),
+    reticle: reticle,
+    makeExplanationStream: { _ in nil })
+  await coordinator.start()
+
+  await coordinator.apply([.capture(at: CGPoint(x: 400, y: 250))])
+  await coordinator.waitUntilCaptureSettled()
+
+  // The main display's bounds start at the origin, so the global rect equals
+  // the display-local rect the capturer reported.
+  #expect(reticle.flashed == [sent])
 }

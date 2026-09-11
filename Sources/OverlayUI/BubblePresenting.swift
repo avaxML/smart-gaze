@@ -17,3 +17,14 @@ public protocol BubblePresenting: AnyObject, Sendable {
 }
 
 extension BubbleController: BubblePresenting {}
+
+/// The outline of the pending capture region. Kept separate from the bubble
+/// because it is shown before any capture exists and hidden the moment one does.
+@MainActor
+public protocol ReticlePresenting: AnyObject, Sendable {
+  func show(centredOn point: CGPoint, size: CGSize)
+  func hide()
+  func flash(capturedRect rect: CGRect)
+}
+
+extension ReticleController: ReticlePresenting {}
