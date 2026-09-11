@@ -424,3 +424,20 @@ private final class Counter: @unchecked Sendable {
   // the display-local rect the capturer reported.
   #expect(reticle.flashed == [sent])
 }
+
+@Test func trackingIsBoundedByTheCalibratedDisplayPlusAMargin() {
+  let calibrated = CGRect(x: 0, y: 0, width: 1728, height: 1117)
+  let union = CGRect(x: -2560, y: -300, width: 4288, height: 1440)
+
+  let bounds = GazeCoordinator.trackingBounds(calibrated: calibrated, fallback: union)
+
+  #expect(bounds == CGRect(x: -150, y: -150, width: 2028, height: 1417))
+  #expect(!bounds.contains(CGPoint(x: -1280, y: 420)))
+  #expect(bounds.contains(CGPoint(x: -100, y: 500)))
+}
+
+@Test func withoutACalibratedDisplayTrackingFallsBackToEveryDisplay() {
+  let union = CGRect(x: -2560, y: -300, width: 4288, height: 1440)
+  #expect(GazeCoordinator.trackingBounds(calibrated: nil, fallback: union) == union)
+  #expect(GazeCoordinator.trackingBounds(calibrated: .null, fallback: union) == union)
+}

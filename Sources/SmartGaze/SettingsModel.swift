@@ -327,6 +327,7 @@ final class SettingsModel: ObservableObject {
   func applyCalibrationResult(_ result: CalibrationResult) {
     settings.calibrationMap = result.map
     settings.calibrationDistanceCentimeters = result.distanceCentimeters
+    settings.calibratedBounds = result.bounds.isNull ? nil : result.bounds
     persist()
     onCalibrationChanged?()
   }

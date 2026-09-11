@@ -40,7 +40,7 @@ private func loadSettings(withStoredCalibration calibration: [String: Any]) thro
   let data = try JSONEncoder().encode(Settings.default)
   let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
 
-  #expect(object["dwellSeconds"] as? Double == 0.6)
+  #expect(object["dwellSeconds"] as? Double == 1.2)
   #expect(object["dispersionThreshold"] as? Double == 160)
   #expect(object["activationMode"] as? String == "modifierHeld")
   #expect(object["modifierKey"] as? String == "option")
@@ -63,7 +63,7 @@ private func loadSettings(withStoredCalibration calibration: [String: Any]) thro
   let decoded = try JSONDecoder().decode(Settings.self, from: stripped)
   #expect(decoded.deniedApps == AppDenylist())
   #expect(decoded.deniedApps.allowsCapture(frontmostBundleID: "com.1password.1password") == false)
-  #expect(decoded.dwellSeconds == 0.6)
+  #expect(decoded.dwellSeconds == 1.2)
   #expect(decoded.activationMode == .modifierHeld)
   #expect(decoded.dispersionThreshold == 160)
 }
@@ -223,4 +223,15 @@ private func loadSettings(withStoredCalibration calibration: [String: Any]) thro
   #expect(loaded.dwellSeconds == 1.25)
   #expect(loaded.activationMode == .passiveDwell)
   #expect(loaded.activeProvider == .anthropic)
+}
+
+@Test func calibratedBoundsRoundTripAndAreOptionalInOlderBlobs() throws {
+  var settings = Settings.default
+  settings.calibratedBounds = CGRect(x: 0, y: 0, width: 1728, height: 1117)
+  let data = try JSONEncoder().encode(settings)
+  let decoded = try JSONDecoder().decode(Settings.self, from: data)
+  #expect(decoded.calibratedBounds == CGRect(x: 0, y: 0, width: 1728, height: 1117))
+
+  let older = try JSONDecoder().decode(Settings.self, from: JSONEncoder().encode(Settings.default))
+  #expect(older.calibratedBounds == nil)
 }

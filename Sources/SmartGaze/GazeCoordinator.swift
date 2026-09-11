@@ -69,7 +69,8 @@ actor GazeCoordinator {
     self.tracking = TrackingPreview(
       mode: settings.activationMode,
       cooldown: 3.0,
-      bounds: GazeCoordinator.unionOfActiveDisplays(),
+      bounds: GazeCoordinator.trackingBounds(
+        calibrated: settings.calibratedBounds, fallback: GazeCoordinator.unionOfActiveDisplays()),
       dwellWindow: settings.dwellSeconds,
       dispersionThreshold: settings.dispersionThreshold)
     self.calibration = settings.calibrationMap
@@ -291,6 +292,18 @@ actor GazeCoordinator {
   /// The union, in Quartz global display space, of every active display.
   /// Used as the tracking bounds so a gaze sample on a secondary display is
   /// not rejected as out of bounds.
+  /// The calibration map is only valid on the display it was fitted on. A
+  /// glance at another monitor projects outside that display and is rejected
+  /// as out of bounds instead of dwelling somewhere the map never covered.
+  /// The margin absorbs the map's edge error without letting the other
+  /// display's centre through.
+  nonisolated static func trackingBounds(
+    calibrated: CGRect?, fallback: CGRect, margin: CGFloat = 150
+  ) -> CGRect {
+    guard let calibrated, !calibrated.isNull, !calibrated.isEmpty else { return fallback }
+    return calibrated.insetBy(dx: -margin, dy: -margin)
+  }
+
   nonisolated static func unionOfActiveDisplays() -> CGRect {
     var displayCount: UInt32 = 0
     guard CGGetActiveDisplayList(0, nil, &displayCount) == .success, displayCount > 0 else {
