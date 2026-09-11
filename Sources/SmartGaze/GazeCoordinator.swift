@@ -43,6 +43,7 @@ actor GazeCoordinator {
   private let gazePipeline: GazePipeline?
   private let capturer: any RegionCapturing
   private let captureSize: CGSize
+  private let bubbleSize: CGSize
   private let makeExplanationStream: @Sendable (Data) async -> AsyncThrowingStream<String, Error>?
 
   private let bubble: any BubblePresenting
@@ -74,6 +75,7 @@ actor GazeCoordinator {
     self.capturer = capturer
     self.bubble = bubble
     self.captureSize = captureSize
+    self.bubbleSize = CGSize(width: settings.bubbleWidth, height: settings.bubbleMaxHeight)
     self.makeExplanationStream = makeExplanationStream
   }
 
@@ -248,7 +250,7 @@ actor GazeCoordinator {
     let region = QuartzCocoaConversion.cocoaRect(
       fromQuartz: globalQuartzRect, mainDisplayHeight: mainHeight)
     let bounds = NSScreen.screens.reduce(CGRect.null) { $0.union($1.frame) }
-    return bubble.show(anchoredTo: region, within: bounds, size: CGSize(width: 360, height: 240))
+    return bubble.show(anchoredTo: region, within: bounds, size: bubbleSize)
   }
 
   @MainActor
@@ -258,8 +260,11 @@ actor GazeCoordinator {
       fromQuartz: globalQuartzPoint, mainDisplayHeight: mainHeight)
     let region = CGRect(origin: point, size: .zero)
     let bounds = NSScreen.screens.reduce(CGRect.null) { $0.union($1.frame) }
+    // An error is one short sentence, so it takes the configured width but only
+    // as much height as it needs rather than the full reading height.
     let handle = bubble.show(
-      anchoredTo: region, within: bounds, size: CGSize(width: 360, height: 160))
+      anchoredTo: region, within: bounds,
+      size: CGSize(width: bubbleSize.width, height: min(bubbleSize.height, 160)))
     bubble.showError(message, for: handle)
   }
 
