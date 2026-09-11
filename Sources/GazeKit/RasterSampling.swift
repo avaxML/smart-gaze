@@ -48,10 +48,12 @@ public func resampledRGB(
 
   var output = [Float](repeating: 0, count: width * height * 3)
   for j in 0..<height {
-    let sampleY = Double(region.minY) + (Double(j) + 0.5) * Double(region.height) / Double(height)
+    // bilinearRGB treats integer coordinates as source pixel centres, so an
+    // identity resample over region (0, 0, W, H) with matching output size
+    // must land destination j on source pixel centre j, not j + 0.5.
+    let sampleY = Double(region.minY) + Double(j) * Double(region.height) / Double(height)
     for i in 0..<width {
-      // Sample at pixel centres so an identity resample reproduces the source.
-      let sampleX = Double(region.minX) + (Double(i) + 0.5) * Double(region.width) / Double(width)
+      let sampleX = Double(region.minX) + Double(i) * Double(region.width) / Double(width)
       let color = bilinearRGB(source, x: sampleX, y: sampleY)
       let index = (j * width + i) * 3
       output[index] = color.x
@@ -78,7 +80,7 @@ public func warpedRGB(
   var output = [Float](repeating: 0, count: width * height * 3)
   for j in 0..<height {
     for i in 0..<width {
-      let destination = CGPoint(x: Double(i) + 0.5, y: Double(j) + 0.5)
+      let destination = CGPoint(x: Double(i), y: Double(j))
       guard let sample = inverse.map(destination) else {
         // Points on the transform's horizon stay black rather than failing the warp.
         continue
