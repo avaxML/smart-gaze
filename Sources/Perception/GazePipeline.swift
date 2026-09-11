@@ -26,14 +26,25 @@ public actor GazePipeline {
 
   private let faceMesh: FaceMeshEstimator
   private let blazeGaze: BlazeGazeEstimator
+  private var verticalFieldOfViewDegrees: Double
 
   public init(
     faceMeshModelURL: URL,
     blazeGazeModelURL: URL,
-    computeUnits: MLComputeUnits = .all
+    computeUnits: MLComputeUnits = .all,
+    verticalFieldOfViewDegrees: Double = 60
   ) throws {
     self.faceMesh = try FaceMeshEstimator(modelURL: faceMeshModelURL, computeUnits: computeUnits)
     self.blazeGaze = try BlazeGazeEstimator(modelURL: blazeGazeModelURL, computeUnits: computeUnits)
+    self.verticalFieldOfViewDegrees = verticalFieldOfViewDegrees
+  }
+
+  /// Called once the camera reports its actual field of view, which is only known
+  /// after the capture session has configured its device and is not available at
+  /// `init` time. Ignored if the pipeline already heard from the camera.
+  public func updateVerticalFieldOfView(degrees: Double) {
+    guard degrees.isFinite, degrees > 0 else { return }
+    verticalFieldOfViewDegrees = degrees
   }
 
   public func gazePoint(from pixelBuffer: sending CVPixelBuffer) async throws -> NormalizedGazePoint
@@ -72,7 +83,8 @@ public actor GazePipeline {
 
     let headPose = try headPoseInputs(
       landmarks: fullFrame.pixelSpace,
-      imageSize: SIMD2(Double(frameSize.width), Double(frameSize.height)))
+      imageSize: SIMD2(Double(frameSize.width), Double(frameSize.height)),
+      verticalFieldOfViewDegrees: verticalFieldOfViewDegrees)
 
     let blazeInput = try BlazeGazeInput(
       eyeBandRGB: eyeBand,

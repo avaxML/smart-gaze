@@ -88,6 +88,10 @@ actor GazeCoordinator {
     }
   }
 
+  func updateVerticalFieldOfView(degrees: Double) async {
+    await gazePipeline?.updateVerticalFieldOfView(degrees: degrees)
+  }
+
   // MARK: - Camera queue input
 
   func handleFrame(_ pixelBuffer: sending CVPixelBuffer, at timestamp: TimeInterval) async {

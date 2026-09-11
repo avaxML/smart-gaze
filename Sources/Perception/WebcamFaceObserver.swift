@@ -1,5 +1,6 @@
 import AVFoundation
 import CoreGraphics
+import CoreMedia
 import CoreVideo
 import Foundation
 import GazeKit
@@ -11,10 +12,12 @@ public enum PerceptionError: Error, Equatable, Sendable {
   case cannotConfigureSession
 }
 
-public final class WebcamFaceObserver: NSObject, FaceObserving, FrameProviding, @unchecked Sendable
+public final class WebcamFaceObserver: NSObject, FaceObserving, FrameProviding,
+  FieldOfViewProviding, @unchecked Sendable
 {
   public let faces: AsyncStream<FaceObservation?>
   public let frames: AsyncStream<CameraFrame>
+  public private(set) var verticalFieldOfViewDegrees: Double?
 
   private let continuation: AsyncStream<FaceObservation?>.Continuation
   private let frameContinuation: AsyncStream<CameraFrame>.Continuation
@@ -95,6 +98,9 @@ public final class WebcamFaceObserver: NSObject, FaceObserving, FrameProviding, 
       throw PerceptionError.cannotConfigureSession
     }
     session.addInput(input)
+    verticalFieldOfViewDegrees = Self.verticalFieldOfViewDegrees(
+      horizontalDegrees: Self.horizontalFieldOfViewDegrees(for: device),
+      format: device.activeFormat)
 
     let output = AVCaptureVideoDataOutput()
     output.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
@@ -108,6 +114,40 @@ public final class WebcamFaceObserver: NSObject, FaceObserving, FrameProviding, 
 
     session.commitConfiguration()
     session.startRunning()
+  }
+
+  /// `AVCaptureDevice.Format.videoFieldOfView` reports the HORIZONTAL field of view in
+  /// degrees on iOS, but Apple marks it `API_UNAVAILABLE(macos)`, confirmed by a build
+  /// failure against the macOS 26 SDK when this was called directly. There is currently
+  /// no public AVFoundation replacement on macOS, so this always returns `nil` here.
+  /// `configureAndStart` still routes the (currently absent) reading through the same
+  /// derivation and validation `metricFaceOrigin`'s caller needs, so the day AVFoundation
+  /// exposes one on macOS, wiring it in is a one-line change at this call site.
+  private static func horizontalFieldOfViewDegrees(for device: AVCaptureDevice) -> Double? {
+    nil
+  }
+
+  /// Derives the vertical field of view from a horizontal reading and the active
+  /// format's frame aspect ratio, returned as a plain `Double` so `GazeKit` never has
+  /// to import AVFoundation to consume it.
+  ///
+  /// Returns `nil` when there is no horizontal reading, or it is zero, negative, or at
+  /// least 180 degrees: values a real lens cannot produce, so the caller keeps its own
+  /// default rather than deriving an angle from a nonsensical one.
+  static func verticalFieldOfViewDegrees(
+    horizontalDegrees: Double?, format: AVCaptureDevice.Format
+  ) -> Double? {
+    guard let horizontalDegrees, horizontalDegrees > 0, horizontalDegrees < 180 else {
+      return nil
+    }
+
+    let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+    guard dimensions.width > 0, dimensions.height > 0 else { return nil }
+
+    let halfHorizontal = horizontalDegrees / 2 * .pi / 180
+    let aspect = Double(dimensions.height) / Double(dimensions.width)
+    let halfVertical = atan(tan(halfHorizontal) * aspect)
+    return halfVertical * 2 * 180 / .pi
   }
 }
 

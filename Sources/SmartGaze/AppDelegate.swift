@@ -39,6 +39,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     camera.onChange = { [weak self] in self?.refreshMenu() }
     camera.onError = { [weak self] error in self?.presentCameraError(error) }
     camera.onFrame = { [weak self] frame in self?.handleFrame(frame) }
+    camera.onFieldOfView = { [weak self] degrees in
+      Task { await self?.coordinator?.updateVerticalFieldOfView(degrees: degrees) }
+    }
     refreshMenu()
   }
 

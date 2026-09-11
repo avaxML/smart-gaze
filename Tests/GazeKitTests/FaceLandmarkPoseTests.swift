@@ -66,7 +66,8 @@ private let imageSize = SIMD2<Double>(1920, 1080)
 }
 
 @Test func identityHeadVectorIsUnitLength() throws {
-  let result = try headPoseInputs(landmarks: CanonicalFaceModel.vertices, imageSize: imageSize)
+  let landmarks = imageSpaceLandmarks(canonicalFrame: CanonicalFaceModel.vertices)
+  let result = try headPoseInputs(landmarks: landmarks, imageSize: imageSize)
 
   #expect(abs(magnitude(result.headVector) - 1) <= tolerance)
 }
@@ -116,7 +117,8 @@ private let imageSize = SIMD2<Double>(1920, 1080)
 }
 
 @Test func modelVectorsRoundTripTheDoubles() throws {
-  let result = try headPoseInputs(landmarks: CanonicalFaceModel.vertices, imageSize: imageSize)
+  let landmarks = imageSpaceLandmarks(canonicalFrame: CanonicalFaceModel.vertices)
+  let result = try headPoseInputs(landmarks: landmarks, imageSize: imageSize)
   let vectors = result.modelVectors
   let floatTolerance = 1e-5
 
@@ -169,7 +171,37 @@ private let imageSize = SIMD2<Double>(1920, 1080)
 }
 
 @Test func headVectorMatchesTheStoredRotation() throws {
-  let result = try headPoseInputs(landmarks: CanonicalFaceModel.vertices, imageSize: imageSize)
+  let landmarks = imageSpaceLandmarks(canonicalFrame: CanonicalFaceModel.vertices)
+  let result = try headPoseInputs(landmarks: landmarks, imageSize: imageSize)
 
   #expect(difference(headVector(from: result.rotation), result.headVector) <= 1e-12)
+}
+
+@Test func faceTurnedAwayFromCameraThrowsHeadVectorNotFacingCamera() {
+  let rotation = rotationAboutY(Double.pi)
+  let canonicalFrameObserved = CanonicalFaceModel.vertices.map { apply(rotation, to: $0) }
+  let observed = imageSpaceLandmarks(canonicalFrame: canonicalFrameObserved)
+  let expectedZ = headVector(from: RigidRotation(matrix: rotation)).z
+  #expect(expectedZ >= 0)
+
+  #expect {
+    _ = try headPoseInputs(landmarks: observed, imageSize: imageSize)
+  } throws: { error in
+    guard case FaceLandmarkError.headVectorNotFacingCamera(let z) = error else { return false }
+    return abs(z - expectedZ) <= rotationTolerance
+  }
+}
+
+@Test func nonsensicalFieldOfViewThrowsFaceNotInFrontOfCamera() {
+  let landmarks = imageSpaceLandmarks(canonicalFrame: CanonicalFaceModel.vertices)
+  #expect {
+    _ = try headPoseInputs(
+      landmarks: landmarks,
+      imageSize: imageSize,
+      verticalFieldOfViewDegrees: 190
+    )
+  } throws: { error in
+    guard case FaceLandmarkError.faceNotInFrontOfCamera(let depth) = error else { return false }
+    return depth <= 0
+  }
 }
