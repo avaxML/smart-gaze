@@ -25,6 +25,23 @@ enum MenuBarState: Equatable, Sendable {
     }
   }
 
+  /// What the menu says the app is doing. Phrased for a menu, which already
+  /// carries the app's identity, unlike the VoiceOver label below which is read
+  /// without that context.
+  var menuStatus: String {
+    switch self {
+    case .off: "Not tracking"
+    case .waitingForPermission: "Waiting for camera permission"
+    case .permissionDenied: "Camera access denied"
+    case .starting: "Starting the camera…"
+    case .timedOut: "The camera did not start"
+    case .cameraLive: "Tracking"
+    case .uncalibrated: "Calibration needed"
+    case .accessibilityDegraded: "Dwell mode, Accessibility not granted"
+    case .captureBusy: "Explaining what you looked at…"
+    }
+  }
+
   var accessibilityDescription: String {
     switch self {
     case .off: "SmartGaze is off"

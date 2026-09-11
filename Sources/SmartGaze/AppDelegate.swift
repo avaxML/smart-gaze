@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var startPauseItem: NSMenuItem!
   private var captureCountItem: NSMenuItem!
   private var actionItem: NSMenuItem!
+  private var statusLineItem: NSMenuItem!
 
   private let settingsStore = UserDefaultsSettingsStore()
   private let secrets = KeychainStore()
@@ -184,6 +185,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     let menu = NSMenu()
 
+    statusLineItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    statusLineItem.isEnabled = false
+    menu.addItem(statusLineItem)
+
     captureCountItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     captureCountItem.isEnabled = false
     menu.addItem(captureCountItem)
@@ -228,6 +233,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     image?.isTemplate = true
     statusItem.button?.image = image
 
+    statusLineItem.title = state.menuStatus
     captureCountItem.title = "Session captures: \(captureActivity.captureCount)"
     startPauseItem.title = camera.state == .off ? "Start" : "Pause"
 
@@ -239,6 +245,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     case .uncalibrated:
       actionItem.title = "Calibrate Now"
       actionItem.action = #selector(calibrateNow)
+      actionItem.isHidden = false
+    case .timedOut:
+      actionItem.title = "Open Privacy Settings…"
+      actionItem.action = #selector(openPrivacySettings)
       actionItem.isHidden = false
     case .accessibilityDegraded:
       actionItem.title = "Open Accessibility Settings…"
