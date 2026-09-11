@@ -35,7 +35,13 @@ import ScreenCapture
 /// right before a `BubblePresenting` call.
 actor GazeCoordinator {
   private var tracking: TrackingPreview
-  private var gazeFilter = OneEuroPointFilter()
+  /// Tuned on a 30 s live trace of this pipeline in screen points, not on
+  /// the paper's normalised defaults: the map's gain is about 1900 pt per
+  /// unit, so the stock beta of 0.007 opened the cutoff to several hertz on
+  /// ordinary jitter and the filter passed everything through. Replaying the
+  /// trace: per-frame twitch while holding a spot fell from 27 pt (p90 82) to
+  /// 10 pt (p90 36) with the 90 percent step response unchanged at 107 ms.
+  private var gazeFilter = OneEuroPointFilter(minCutoff: 0.2, beta: 0.002)
   private var traceSamplesLeft =
     ProcessInfo.processInfo.environment["SMART_GAZE_TRACE_GAZE"] == nil ? 0 : 900
   private var faceLoss = FaceLossDebounce()
