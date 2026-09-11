@@ -102,6 +102,12 @@ final class CalibrationPreviewModel {
   var explanation: ExplanationState = .idle
   private(set) var targetCenter: CGPoint?
 
+  /// Set by `SettingsWindowController`, which owns the window-level plumbing
+  /// a calibration run needs (its own non-activating windows and screens).
+  var onStartCalibration: (() -> Void)?
+
+  func startCalibration() { onStartCalibration?() }
+
   let sampleTitle: String
   let sampleCode: String
 
@@ -450,4 +456,17 @@ final class CalibrationPreviewModel {
   }
 
   var isLiveTrackingAvailable: Bool { liveSampleSourceAvailable }
+
+  var calibrationStatusMessage: String {
+    guard let settings, settings.hasCalibration else {
+      return "No calibration is saved yet. Live gaze tracking is uncalibrated until you run one."
+    }
+    if let distance = settings.settings.calibrationDistanceCentimeters {
+      return String(
+        format:
+          "Calibrated at %.0f cm from the screen. Recalibrate if you move, add glasses, or switch monitors.",
+        distance)
+    }
+    return "A calibration is saved. Recalibrate if you move, add glasses, or switch monitors."
+  }
 }

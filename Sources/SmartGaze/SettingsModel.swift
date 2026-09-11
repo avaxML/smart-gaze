@@ -320,6 +320,14 @@ final class SettingsModel: ObservableObject {
     invalidateConnectionResult()
   }
 
+  var hasCalibration: Bool { settings.calibrationMap != nil }
+
+  func applyCalibrationResult(_ result: CalibrationResult) {
+    settings.calibrationMap = result.map
+    settings.calibrationDistanceCentimeters = result.distanceCentimeters
+    persist()
+  }
+
   private var activeProviderSettings: ProviderSettings? {
     settings.providers[settings.activeProvider]
   }

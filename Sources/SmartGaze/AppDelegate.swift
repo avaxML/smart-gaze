@@ -40,6 +40,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     camera.onError = { [weak self] error in self?.presentCameraError(error) }
     camera.onFrame = { [weak self] frame in self?.handleFrame(frame) }
     refreshMenu()
+
+    if !settingsModel.hasCalibration {
+      offerFirstRunCalibration()
+    }
+  }
+
+  /// Offers calibration, never forces it. A user who declines keeps running
+  /// uncalibrated rather than being blocked from using the app.
+  private func offerFirstRunCalibration() {
+    let alert = NSAlert()
+    alert.messageText = "Calibrate SmartGaze?"
+    alert.informativeText =
+      "Without calibration, gaze tracking is not usable. Calibration takes under a minute: look at nine dots, then four more to check the result."
+    alert.alertStyle = .informational
+    alert.addButton(withTitle: "Calibrate Now")
+    alert.addButton(withTitle: "Not Now")
+    if alert.runModal() == .alertFirstButtonReturn {
+      settingsWindowController.startCalibration()
+    }
   }
 
   private func handleFrame(_ frame: CameraFrame) {
