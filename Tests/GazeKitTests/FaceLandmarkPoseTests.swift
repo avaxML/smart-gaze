@@ -214,3 +214,17 @@ private let imageSize = SIMD2<Double>(1920, 1080)
     #expect(fallback.faceOrigin.centimetres.z == assumed.faceOrigin.centimetres.z)
   }
 }
+
+@Test func headYawIsZeroFacingTheCameraAndTwentyDegreesAfterATwentyDegreeTurn() throws {
+  let square = try headPoseInputs(
+    landmarks: imageSpaceLandmarks(canonicalFrame: CanonicalFaceModel.vertices),
+    imageSize: imageSize)
+  #expect(abs(headYawRadians(from: square.headVector)) <= tolerance)
+
+  let turned = CanonicalFaceModel.vertices.map {
+    apply(rotationAboutY(20 * Double.pi / 180), to: $0)
+  }
+  let result = try headPoseInputs(
+    landmarks: imageSpaceLandmarks(canonicalFrame: turned), imageSize: imageSize)
+  #expect(abs(abs(headYawRadians(from: result.headVector)) - 20 * Double.pi / 180) <= 0.02)
+}

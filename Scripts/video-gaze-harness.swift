@@ -80,9 +80,16 @@ struct VideoGazeHarness {
     reader.add(output)
     reader.startReading()
 
-    var frames = 0, produced = 0, noFace = 0, lowPresence = 0, otherErrors = 0
-    var latencies: [Double] = [], xs: [Double] = [], ys: [Double] = []
+    var frames = 0
+    var produced = 0
+    var noFace = 0
+    var lowPresence = 0
+    var otherErrors = 0
+    var latencies: [Double] = []
+    var xs: [Double] = []
+    var ys: [Double] = []
     var times: [Double] = []
+    var yaws: [Double] = []
     var firstErrors: [String] = []
 
     while frames < maxFrames, let sample = output.copyNextSampleBuffer() {
@@ -96,6 +103,7 @@ struct VideoGazeHarness {
         latencies.append((CFAbsoluteTimeGetCurrent() - started) * 1000)
         xs.append(estimate.gaze.x)
         ys.append(estimate.gaze.y)
+        yaws.append(abs(estimate.headYawRadians))
         times.append(Double(frames) / 25.0)
         produced += 1
       } catch let error as GazePipelineError {
@@ -112,7 +120,8 @@ struct VideoGazeHarness {
       }
     }
 
-    print("video \(videoURL.lastPathComponent) \(Int(naturalSize.width))x\(Int(naturalSize.height))")
+    print(
+      "video \(videoURL.lastPathComponent) \(Int(naturalSize.width))x\(Int(naturalSize.height))")
     print(
       "frames \(frames)  gaze \(produced)  noFace \(noFace)  lowPresence \(lowPresence)  errors \(otherErrors)"
     )
@@ -138,6 +147,9 @@ struct VideoGazeHarness {
     )
     let nonFinite = xs.filter { !$0.isFinite }.count + ys.filter { !$0.isFinite }.count
     print("non-finite \(nonFinite)")
+    print(
+      "head |yaw| rad  p50 \(percentile(yaws, 0.5))  p90 \(percentile(yaws, 0.9))  p95 \(percentile(yaws, 0.95))  max \(percentile(yaws, 1))  "
+        + "frames above 0.40: \(yaws.filter { $0 > 0.40 }.count) of \(yaws.count)")
 
     // Run the real filter and the real dispersion metric the trigger uses, so the
     // number reported here is comparable to the shipped threshold rather than a
@@ -158,7 +170,8 @@ struct VideoGazeHarness {
       let cutoff = points[end].1 - window
       let slice = points[...end].filter { $0.1 >= cutoff }
       guard slice.count > 1 else { continue }
-      let sx = slice.map { $0.0.x }, sy = slice.map { $0.0.y }
+      let sx = slice.map { $0.0.x }
+      let sy = slice.map { $0.0.y }
       dispersions.append((sx.max()! - sx.min()!) + (sy.max()! - sy.min()!))
     }
     guard !dispersions.isEmpty else { return }

@@ -84,6 +84,14 @@ public func headVector(from rotation: RigidRotation) -> SIMD3<Double> {
   return SIMD3<Double>(rotatedX / length, rotatedY / length, z / length)
 }
 
+/// The head's turn about the vertical axis, from the unit vector the face
+/// points along. Zero facing the camera, positive and negative for the two
+/// sides; callers that gate on it use the magnitude. Continuous, unlike
+/// Vision's face yaw, which arrives quantised to 45 degree steps.
+public func headYawRadians(from head: SIMD3<Double>) -> Double {
+  atan2(head.x, -head.z)
+}
+
 public struct MetricFaceOrigin: Equatable, Sendable {
   public let centimetres: SIMD3<Double>
 }

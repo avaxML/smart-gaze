@@ -17,10 +17,14 @@ public enum GazePipelineError: Error, Equatable, Sendable {
 public struct GazeEstimate: Equatable, Sendable {
   public let gaze: NormalizedGazePoint
   public let faceDistanceCentimeters: Double
+  public let headYawRadians: Double
 
-  public init(gaze: NormalizedGazePoint, faceDistanceCentimeters: Double) {
+  public init(
+    gaze: NormalizedGazePoint, faceDistanceCentimeters: Double, headYawRadians: Double = 0
+  ) {
     self.gaze = gaze
     self.faceDistanceCentimeters = faceDistanceCentimeters
+    self.headYawRadians = headYawRadians
   }
 }
 
@@ -128,7 +132,8 @@ public actor GazePipeline {
 
     let gaze = try await blazeGaze.estimate(blazeInput)
     return GazeEstimate(
-      gaze: gaze, faceDistanceCentimeters: headPose.faceOrigin.centimetres.z)
+      gaze: gaze, faceDistanceCentimeters: headPose.faceOrigin.centimetres.z,
+      headYawRadians: headYawRadians(from: headPose.headVector))
   }
 
   /// The only Vision call in the pipeline: bootstraps the crop from Vision's

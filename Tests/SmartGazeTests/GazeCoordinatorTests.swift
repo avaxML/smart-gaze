@@ -227,13 +227,11 @@ private func closedEye() -> EyeLandmarks {
   ])!
 }
 
-private func faceObservation(
-  eyesClosed: Bool, yaw: Double = 0, at timestamp: TimeInterval
-) -> FaceObservation {
+private func faceObservation(eyesClosed: Bool, at timestamp: TimeInterval) -> FaceObservation {
   let eye = eyesClosed ? closedEye() : openEye()
   return FaceObservation(
     boundingBox: CGRect(x: 0, y: 0, width: 1, height: 1),
-    yaw: yaw, pitch: 0, roll: 0,
+    yaw: 0, pitch: 0, roll: 0,
     leftEye: eye, rightEye: eye,
     leftPupil: .zero, rightPupil: .zero,
     timestamp: timestamp)
@@ -467,7 +465,7 @@ private final class Counter: @unchecked Sendable {
 
   let point = CGPoint(x: 700, y: 400)
   var time = 0.0
-  await coordinator.handleObservation(faceObservation(eyesClosed: false, yaw: 0.6, at: 0), at: 0)
+  await coordinator.handleHeadYaw(0.6)
   while time < 2.0 {
     await coordinator.handleGazeSample(point, at: time)
     time += 0.05
@@ -475,8 +473,7 @@ private final class Counter: @unchecked Sendable {
   await coordinator.waitUntilCaptureSettled()
   #expect(captureCalls.value == 0)
 
-  await coordinator.handleObservation(
-    faceObservation(eyesClosed: false, yaw: 0.05, at: time), at: time)
+  await coordinator.handleHeadYaw(0.05)
   while time < 4.0 {
     await coordinator.handleGazeSample(point, at: time)
     time += 0.05
