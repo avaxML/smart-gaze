@@ -322,10 +322,13 @@ final class SettingsModel: ObservableObject {
 
   var hasCalibration: Bool { settings.calibrationMap != nil }
 
+  var onCalibrationChanged: (() -> Void)?
+
   func applyCalibrationResult(_ result: CalibrationResult) {
     settings.calibrationMap = result.map
     settings.calibrationDistanceCentimeters = result.distanceCentimeters
     persist()
+    onCalibrationChanged?()
   }
 
   private var activeProviderSettings: ProviderSettings? {

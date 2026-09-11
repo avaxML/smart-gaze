@@ -44,6 +44,19 @@ public final class WebcamFaceObserver: NSObject, FaceObserving, FrameProviding,
     super.init()
   }
 
+  public var authorizationStatus: CameraAuthorization {
+    switch AVCaptureDevice.authorizationStatus(for: .video) {
+    case .authorized:
+      return .authorized
+    case .notDetermined:
+      return .notDetermined
+    case .denied, .restricted:
+      return .denied
+    @unknown default:
+      return .denied
+    }
+  }
+
   public func start() async throws {
     guard await requestCameraAccess() else { throw PerceptionError.cameraAccessDenied }
     try await withCheckedThrowingContinuation { (resume: CheckedContinuation<Void, Error>) in

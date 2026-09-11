@@ -36,8 +36,19 @@ public struct FaceObservation: Equatable, Sendable {
   }
 }
 
+/// Mirrors `AVCaptureDevice.authorizationStatus(for: .video)` without exposing
+/// AVFoundation to callers outside `Perception`. `.restricted` folds into
+/// `.denied`: both mean the same thing to a caller deciding whether to enter
+/// a starting state, and neither is user-recoverable through the same path.
+public enum CameraAuthorization: Equatable, Sendable {
+  case authorized
+  case notDetermined
+  case denied
+}
+
 public protocol FaceObserving: Sendable {
   var faces: AsyncStream<FaceObservation?> { get }
+  var authorizationStatus: CameraAuthorization { get }
   func start() async throws
   func stop()
 }
