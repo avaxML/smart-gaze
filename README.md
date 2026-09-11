@@ -108,6 +108,46 @@ uniform input, plus the `MLComputePlan` planned device assignments per operation
 Planned assignments are not profiler-proven execution, and the 33 ms pipeline
 budget is not measured by this model-only benchmark.
 
+### Dense face landmarks
+
+`Perception` also runs a second model. `FaceMeshEstimator` produces the 468 dense
+landmarks that the eye band, the head vector and the metric face origin are all
+derived from, so it sits upstream of everything BlazeGaze sees.
+
+Its provenance is weaker than BlazeGaze's and is recorded rather than resolved. The
+artifact is a third-party conversion of Google's MediaPipe FaceMesh. The repository
+that carries it is MIT licensed, the model lineage is Apache-2.0, and the tarball
+itself ships **no licence text**. We do not claim MIT rights over those weights.
+
+The upstream path is mutable, so every layer is pinned by SHA-256, including the
+source archive, the inner tarball, the uncompiled model and a manifest over every
+compiled file. Fetch it the same way, and it lands in the same ignored `Models/`
+directory:
+
+```
+bash Scripts/fetch-face-mesh.sh
+```
+
+Full details, including the pinned hashes and the interface, are in
+[`Docs/models/face-mesh.md`](Docs/models/face-mesh.md). The eye-band geometry it
+feeds is documented in
+[`Docs/models/eye-band-geometry.md`](Docs/models/eye-band-geometry.md).
+
+### What is unresolved
+
+Two things are open and neither is hidden in a comment.
+
+The training-data terms for both models are unverified. BlazeGaze ships the
+MPIIFaceGaze variant, and MPIIFaceGaze, Gaze360 and GazeCapture all carry
+non-commercial clauses. The MIT tags upstream describe the code, not the weights.
+Treat this build as personal and research use until those terms are established.
+
+The metric face origin is an approximation, not a reconstruction. The faithful
+upstream method needs `face_width_cm` from iris landmarks 468 to 477, which the base
+468-point mesh does not provide. What ships instead scales an assumed 6.3 cm
+interpupillary distance against an assumed 60 degree vertical field of view. Neither
+constant has been fitted to a real camera yet.
+
 ## Licence
 
 MIT. See `LICENSE`.
