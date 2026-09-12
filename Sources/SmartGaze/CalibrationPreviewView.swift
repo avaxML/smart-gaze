@@ -10,27 +10,16 @@ struct CalibrationPreviewView: View {
 
   var body: some View {
     ScrollView {
-      VStack(alignment: .leading, spacing: 12) {
-        Picker("Preview source", selection: sourceBinding) {
-          ForEach(CalibrationPreviewModel.Source.allCases) { source in
-            Text(source.title).tag(source)
-          }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-
-        sourceSection
-
-        HStack(alignment: .top, spacing: 12) {
-          targetArea
-          telemetryPanel.frame(width: 300, alignment: .topLeading)
-        }
-
+      VStack(alignment: .leading, spacing: 16) {
+        sourcePanel
+        targetArea.frame(height: 240)
+        telemetryPanel
         explanationPanel
       }
       .padding(16)
-      .frame(minWidth: 760, alignment: .topLeading)
+      .frame(maxWidth: .infinity, alignment: .topLeading)
     }
+    .background(.background)
     .background {
       SimulationEventBridge(
         isActive: model.isSimulationInputActive,
@@ -47,18 +36,37 @@ struct CalibrationPreviewView: View {
     Binding(get: { model.selectedSource }, set: { model.selectSource($0) })
   }
 
+  private var sourcePanel: some View {
+    GroupBox("Preview source") {
+      VStack(alignment: .leading, spacing: 12) {
+        Picker("Preview source", selection: sourceBinding) {
+          ForEach(CalibrationPreviewModel.Source.allCases) { source in
+            Text(source.title).tag(source)
+          }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+
+        sourceSection
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+    }
+  }
+
   @ViewBuilder
   private var sourceSection: some View {
     switch model.selectedSource {
     case .live:
       if model.isLiveTrackingAvailable {
         Label("Live gaze samples are connected.", systemImage: "camera.fill")
+          .font(.callout)
           .foregroundStyle(.secondary)
       } else {
         Label(
           "Live camera gaze is not connected in this build. Pointer simulation can still show how triggers behave.",
           systemImage: "exclamationmark.triangle"
         )
+        .font(.callout)
         .foregroundStyle(.secondary)
       }
     case .pointerSimulation:
@@ -69,6 +77,7 @@ struct CalibrationPreviewView: View {
         if model.isPointerSimulationEnabled {
           Text("Activation mode: \(modeLabel)")
             .font(.callout)
+            .foregroundStyle(.secondary)
           modifierControls
           HStack(spacing: 8) {
             Button("Reset") { model.resetPreview() }
@@ -115,12 +124,10 @@ struct CalibrationPreviewView: View {
   private var targetArea: some View {
     GeometryReader { proxy in
       ZStack(alignment: .topLeading) {
-        RoundedRectangle(cornerRadius: 10)
-          .fill(.background)
-          .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.separator))
-
         VStack(alignment: .leading, spacing: 8) {
-          Text(model.sampleTitle).font(.callout.weight(.semibold))
+          Text(model.sampleTitle)
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(.secondary)
           ScrollView {
             Text(verbatim: model.sampleCode)
               .font(.system(.body, design: .monospaced))
@@ -128,7 +135,7 @@ struct CalibrationPreviewView: View {
               .frame(maxWidth: .infinity, alignment: .leading)
           }
         }
-        .padding(12)
+        .padding(16)
 
         if let target = model.targetCenter {
           targetReticle.position(target)
@@ -142,6 +149,10 @@ struct CalibrationPreviewView: View {
             .position(marker)
         }
       }
+      .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+      .overlay {
+        RoundedRectangle(cornerRadius: 12).strokeBorder(.separator)
+      }
       .contentShape(Rectangle())
       .onContinuousHover { phase in
         switch phase {
@@ -152,7 +163,6 @@ struct CalibrationPreviewView: View {
       .onAppear { model.updateTargetSize(proxy.size) }
       .onChange(of: proxy.size) { _, size in model.updateTargetSize(size) }
     }
-    .frame(minWidth: 420, minHeight: 300)
   }
 
   private var targetReticle: some View {
@@ -165,27 +175,31 @@ struct CalibrationPreviewView: View {
 
   private var telemetryPanel: some View {
     GroupBox("Why it triggers") {
-      Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 6) {
-        row("Mode", modeLabel)
-        row("Source", model.selectedSource.title)
-        row("Tracking", trackingDescription)
-        row("Dwell", String(format: "%.1f s", model.dwellSeconds))
-        row(
-          "Dispersion",
-          String(format: "%.0f / %.0f", model.tracking.dispersion, model.dispersionThreshold))
-        row("Trigger state", model.triggerStateDescription)
-        row("Local captures", "\(model.tracking.localTriggerCount) (no provider request)")
-        row("Input", issueDescription(model.tracking.lastIssue))
-        if let error = model.measuredTargetError {
-          row("Measured error", String(format: "%.0f pt", error))
+      VStack(alignment: .leading, spacing: 10) {
+        Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 6) {
+          row("Mode", modeLabel)
+          row("Source", model.selectedSource.title)
+          row("Tracking", trackingDescription)
+          row("Dwell", String(format: "%.1f s", model.dwellSeconds))
+          row(
+            "Dispersion",
+            String(format: "%.0f / %.0f", model.tracking.dispersion, model.dispersionThreshold))
+          row("Trigger state", model.triggerStateDescription)
+          row("Local captures", "\(model.tracking.localTriggerCount) (no provider request)")
+          row("Input", issueDescription(model.tracking.lastIssue))
+          if let error = model.measuredTargetError {
+            row("Measured error", String(format: "%.0f pt", error))
+          }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+
+        ProgressView(value: model.tracking.dwellProgress)
+          .progressViewStyle(.linear)
+        Text(dwellLabel)
+          .font(.caption)
+          .foregroundStyle(.secondary)
       }
       .frame(maxWidth: .infinity, alignment: .leading)
-      ProgressView(value: model.tracking.dwellProgress)
-        .progressViewStyle(.linear)
-      Text(dwellLabel)
-        .font(.caption)
-        .foregroundStyle(.secondary)
     }
   }
 
@@ -200,7 +214,7 @@ struct CalibrationPreviewView: View {
   private func row(_ label: String, _ value: String) -> some View {
     GridRow {
       Text(label).foregroundStyle(.secondary)
-      Text(value).textSelection(.enabled)
+      Text(value).monospacedDigit().textSelection(.enabled)
     }
   }
 
@@ -236,7 +250,7 @@ struct CalibrationPreviewView: View {
 
   private var explanationPanel: some View {
     GroupBox("Explanation") {
-      VStack(alignment: .leading, spacing: 8) {
+      VStack(alignment: .leading, spacing: 10) {
         Text(
           "Local preview triggers never call the provider. Only Test Explanation sends the visible sample code as an image."
         )
@@ -247,12 +261,15 @@ struct CalibrationPreviewView: View {
 
         HStack(spacing: 8) {
           Button("Test Explanation") { model.requestTestExplanation() }
+            .buttonStyle(.bordered)
             .disabled(!model.isExplanationAvailable || model.isExplanationLoading)
           if model.isExplanationLoading {
             Button("Cancel") { model.cancelExplanation() }
+              .buttonStyle(.bordered)
           }
           Spacer()
           Button("Start Calibration") { model.startCalibration() }
+            .buttonStyle(.borderedProminent)
         }
 
         if let message = model.explanationAvailabilityMessage {
@@ -273,6 +290,7 @@ struct CalibrationPreviewView: View {
     switch model.explanation {
     case .idle:
       Text("No explanation requested yet.")
+        .font(.callout)
         .foregroundStyle(.secondary)
     case .loading:
       HStack(spacing: 8) {

@@ -59,10 +59,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     if window == nil {
       window = makeWindow()
     }
-    window?.center()
     window?.makeKeyAndOrderFront(nil)
     NSApp.activate(ignoringOtherApps: true)
   }
+
+  var screenshotWindow: NSWindow? { window }
 
   func windowWillClose(_ notification: Notification) {
     preview.stop()
@@ -75,10 +76,19 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     window.title = "SmartGaze Settings"
     window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
     window.contentMinSize = NSSize(width: 760, height: 400)
+    window.setContentSize(NSSize(width: 820, height: 600))
     window.isReleasedWhenClosed = false
     window.delegate = self
     window.toolbarStyle = .preference
     window.toolbar = NSToolbar()
+    if SettingsScreenshotHarness.isEnabled {
+      window.center()
+    } else {
+      if !window.setFrameUsingName("SettingsWindow") {
+        window.center()
+      }
+      _ = window.setFrameAutosaveName("SettingsWindow")
+    }
     return window
   }
 }
