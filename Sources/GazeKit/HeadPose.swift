@@ -92,6 +92,12 @@ public func headYawRadians(from head: SIMD3<Double>) -> Double {
   atan2(head.x, -head.z)
 }
 
+/// The head's tilt about the horizontal axis, positive when the face points
+/// up, from the same unit vector.
+public func headPitchRadians(from head: SIMD3<Double>) -> Double {
+  asin(max(-1, min(1, head.y)))
+}
+
 public struct MetricFaceOrigin: Equatable, Sendable {
   public let centimetres: SIMD3<Double>
 }

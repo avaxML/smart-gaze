@@ -19,7 +19,7 @@ public struct FixationDetector: Sendable {
   private var buffer: [Sample] = []
   private var isLatched = false
 
-  public init(window: TimeInterval = 1.2, dispersionThreshold: Double = 160) {
+  public init(window: TimeInterval = 1.2, dispersionThreshold: Double = 240) {
     self.window = window
     self.dispersionThreshold = dispersionThreshold
   }

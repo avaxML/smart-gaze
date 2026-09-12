@@ -23,9 +23,28 @@ public final class ReticleController {
     let panel = panel ?? makePanel()
     self.panel = panel
     let origin = Self.appKitOrigin(for: point, size: size)
-    panel.setFrame(CGRect(origin: origin, size: size), display: true)
-    if !panel.isVisible { panel.orderFrontRegardless() }
+    let frame = CGRect(origin: origin, size: size)
+    if !panel.isVisible {
+      panel.setFrame(frame, display: true)
+      panel.orderFrontRegardless()
+      return
+    }
+    // Residual jitter after filtering is a few points per frame. Ignoring
+    // moves under the dead band and easing the rest keeps the outline from
+    // twitching at 30 Hz while it still follows a real shift of gaze.
+    let current = panel.frame
+    guard
+      abs(frame.minX - current.minX) > Self.deadBandPoints
+        || abs(frame.minY - current.minY) > Self.deadBandPoints || frame.size != current.size
+    else { return }
+    NSAnimationContext.runAnimationGroup { context in
+      context.duration = 0.12
+      context.allowsImplicitAnimation = true
+      panel.animator().setFrame(frame, display: true)
+    }
   }
+
+  private static let deadBandPoints: CGFloat = 6
 
   public func hide() {
     guard !isFlashing else { return }

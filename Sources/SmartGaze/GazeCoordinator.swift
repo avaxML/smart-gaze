@@ -35,7 +35,13 @@ import ScreenCapture
 /// right before a `BubblePresenting` call.
 actor GazeCoordinator {
   private var tracking: TrackingPreview
-  private var gazeFilter = OneEuroPointFilter()
+  /// Parameters come from `GazeSmoothing`, tuned on a 30 s live trace in
+  /// screen points rather than the paper's normalised defaults, whose beta of
+  /// 0.007 let ordinary jitter open the cutoff to several hertz.
+  private var gazeFilter: OneEuroPointFilter
+  private var reportedSessionOrigin = false
+  private var traceSamplesLeft =
+    ProcessInfo.processInfo.environment["SMART_GAZE_TRACE_GAZE"] == nil ? 0 : 900
   private var faceLoss = FaceLossDebounce()
   private var blinkDetector = BlinkDetector()
   private var headPose = HeadPoseGate()
@@ -76,6 +82,7 @@ actor GazeCoordinator {
       dwellWindow: settings.dwellSeconds,
       dispersionThreshold: settings.dispersionThreshold)
     self.calibration = settings.calibrationMap
+    self.gazeFilter = OneEuroPointFilter(smoothing: settings.gazeSmoothing)
     self.headTranslation = settings.headTranslationCorrection
     self.gazePipeline = gazePipeline
     self.capturer = capturer
@@ -107,6 +114,10 @@ actor GazeCoordinator {
     }
   }
 
+  func updateSmoothing(level: Double) {
+    gazeFilter = OneEuroPointFilter(smoothing: level)
+  }
+
   func updateVerticalFocalLength(pixels: Double) async {
     await gazePipeline?.updateVerticalFocalLength(pixels: pixels)
   }
@@ -124,6 +135,24 @@ actor GazeCoordinator {
         headTranslation?.correct(projected, faceOriginCentimeters: estimate.faceOriginCentimeters)
         ?? projected
       let filtered = gazeFilter.apply(screenPoint, at: timestamp)
+      if !reportedSessionOrigin {
+        reportedSessionOrigin = true
+        let reference = headTranslation?.referenceOriginCentimeters
+        let offset = reference.map { estimate.faceOriginCentimeters - $0 }
+        LaunchDiagnostics.record(
+          .gaze,
+          "session origin=\(estimate.faceOriginCentimeters) reference=\(String(describing: reference)) "
+            + "offset cm=\(String(describing: offset))")
+      }
+      if traceSamplesLeft > 0 {
+        traceSamplesLeft -= 1
+        LaunchDiagnostics.record(
+          .gaze,
+          "t=\(timestamp) raw=(\(projected.x),\(projected.y)) corrected=(\(screenPoint.x),\(screenPoint.y)) "
+            + "filtered=(\(filtered.x),\(filtered.y)) origin=(\(estimate.faceOriginCentimeters.x),\(estimate.faceOriginCentimeters.y),\(estimate.faceOriginCentimeters.z)) "
+            + "yaw=\(estimate.headYawRadians) pitch=\(estimate.headPitchRadians)"
+        )
+      }
       await handleGazeSample(filtered, at: timestamp)
     } catch is CancellationError {
       return
@@ -140,7 +169,19 @@ actor GazeCoordinator {
   /// the gate flip on one bucket boundary. Internal so a test can turn the
   /// head without a live pipeline.
   func handleHeadYaw(_ yawRadians: Double) {
+    let wasBlocked = headPose.isBlocked
     headPose.update(yawRadians: yawRadians)
+    if headPose.isBlocked != wasBlocked {
+      onFaceTurnedChanged?(headPose.isBlocked)
+    }
+  }
+
+  /// Fires when the head pose gate opens or closes, so the menu can say why
+  /// a hold produces nothing. Set once from `AppDelegate`.
+  private var onFaceTurnedChanged: (@Sendable (Bool) -> Void)?
+
+  func setFaceTurnedHandler(_ handler: @escaping @Sendable (Bool) -> Void) {
+    onFaceTurnedChanged = handler
   }
 
   /// Feeds a resolved screen-space gaze point straight into tracking.
@@ -230,6 +271,7 @@ actor GazeCoordinator {
   }
 
   private func runCapture(at point: CGPoint) async {
+    LaunchDiagnostics.record(.capture, "fired at=(\(point.x),\(point.y))")
     let (displayID, localCenter) = GazeCoordinator.displayLocalPoint(for: point)
     let request = CaptureRequest(center: localCenter, size: captureSize, displayID: displayID)
 
@@ -260,12 +302,16 @@ actor GazeCoordinator {
       try Task.checkCancellation()
       await MainActor.run { [weak self] in self?.bubble.finish(for: handle) }
       completedCaptureCount += 1
+      LaunchDiagnostics.record(.capture, "completed")
     } catch is CancellationError {
+      LaunchDiagnostics.record(.capture, "cancelled")
       return
     } catch let error as CaptureError {
+      LaunchDiagnostics.record(.capture, "failed \(error)")
       providerErrorCount += 1
       await presentError(GazeCoordinator.message(for: error), anchoredTo: point)
     } catch {
+      LaunchDiagnostics.record(.capture, "failed \(error)")
       providerErrorCount += 1
       let message =
         (error as? LocalizedError)?.errorDescription ?? "The explanation could not be completed."

@@ -29,8 +29,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var settingsModel: SettingsModel!
 
   private var coordinator: GazeCoordinator?
+  /// Bumped by every start and stop so a model load that finishes after a
+  /// later stop does not wire a coordinator into a stopped session.
+  private var pipelineGeneration = 0
   private var modifierMonitor: ModifierMonitor?
   private var accessibilityDegraded = false
+  private var faceTurned = false
+  private var accessibilityWatch: Timer?
   private var modelsMissing = false
 
   func applicationDidFinishLaunching(_ notification: Notification) {
@@ -53,7 +58,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       self?.refreshMenu()
     }
     camera.onError = { [weak self] error in self?.presentCameraError(error) }
-    settingsModel.onCalibrationChanged = { [weak self] in self?.refreshMenu() }
+    settingsModel.onCalibrationChanged = { [weak self] in self?.calibrationDidChange() }
+    settingsModel.onGazeSmoothingChanged = { [weak self] level in
+      guard let coordinator = self?.coordinator else { return }
+      Task { await coordinator.updateSmoothing(level: level) }
+    }
     camera.onFrame = { [weak self] frame in self?.handleFrame(frame) }
     camera.onObservation = { [weak self] observation in self?.handleObservation(observation) }
     camera.onFocalLength = { [weak self] pixels in
@@ -93,20 +102,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   /// than crashing: the reported condition still starts the camera, just
   /// without the leg that needs the missing piece.
   private func startGazePipeline() {
-    var settings = settingsModel.settings
-    let pipeline: GazePipeline?
-    do {
-      pipeline = try GazePipeline(
-        faceMeshModelURL: ModelLocator.faceMeshModelURL(),
-        blazeGazeModelURL: ModelLocator.blazeGazeModelURL(),
-        verticalFieldOfViewDegrees: CameraGeometry.builtInVerticalFieldOfViewDegrees)
-      modelsMissing = false
-      LaunchDiagnostics.record(.pipelineReady, "ok")
-    } catch {
-      pipeline = nil
-      modelsMissing = true
-      LaunchDiagnostics.record(.pipelineReady, "failed \(error)")
+    // The two Core ML loads take the better part of a second. Done on the
+    // main thread they stall the event tap past its deadline and macOS
+    // switches it off, so they run detached and the wiring resumes here.
+    pipelineGeneration += 1
+    let generation = pipelineGeneration
+    Task { [weak self] in
+      let loaded = await Task.detached(priority: .userInitiated) {
+        () -> Result<GazePipeline, Error> in
+        Result {
+          try GazePipeline(
+            faceMeshModelURL: ModelLocator.faceMeshModelURL(),
+            blazeGazeModelURL: ModelLocator.blazeGazeModelURL(),
+            verticalFieldOfViewDegrees: CameraGeometry.builtInVerticalFieldOfViewDegrees)
+        }
+      }.value
+      guard let self, self.pipelineGeneration == generation else { return }
+      switch loaded {
+      case .success(let pipeline):
+        self.modelsMissing = false
+        LaunchDiagnostics.record(.pipelineReady, "ok")
+        self.finishStartingGazePipeline(pipeline)
+      case .failure(let error):
+        self.modelsMissing = true
+        LaunchDiagnostics.record(.pipelineReady, "failed \(error)")
+        self.finishStartingGazePipeline(nil)
+      }
     }
+  }
+
+  private func finishStartingGazePipeline(_ pipeline: GazePipeline?) {
+    let settings = settingsModel.settings
 
     // Without Accessibility the modifier is never seen, so the app stays in
     // the mode the user chose and fires nothing. Silently switching to dwell
@@ -115,7 +141,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let needsAccessibility = settings.activationMode == .modifierHeld
     let accessibilityGranted = AXIsProcessTrusted()
     accessibilityDegraded = needsAccessibility && !accessibilityGranted
-    if accessibilityDegraded { refreshMenu() }
+    if accessibilityDegraded {
+      refreshMenu()
+      watchForAccessibilityGrant()
+    }
 
     let coordinator = GazeCoordinator(
       settings: settings,
@@ -127,11 +156,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         await MainActor.run { settingsModel?.makeExplanationStream(imageJPEG: jpeg) }
       })
     self.coordinator = coordinator
-    Task { await coordinator.start() }
+    faceTurned = false
+    Task {
+      await coordinator.setFaceTurnedHandler { [weak self] turned in
+        Task { @MainActor in
+          guard let self, self.faceTurned != turned else { return }
+          self.faceTurned = turned
+          self.refreshMenu()
+        }
+      }
+      await coordinator.start()
+    }
 
+    LaunchDiagnostics.record(
+      .modifier,
+      "mode=\(settings.activationMode.rawValue) accessibility=\(accessibilityGranted ? "granted" : "denied")"
+    )
     guard needsAccessibility, accessibilityGranted else { return }
     let monitor = ModifierMonitor(modifierKey: settings.modifierKey) { [weak self] down, time in
       guard let self else { return }
+      LaunchDiagnostics.record(.modifier, down ? "down" : "up")
       Task {
         if down {
           await self.coordinator?.handleModifierDown(at: time)
@@ -141,14 +185,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       }
     }
     if monitor.start() == .started {
+      LaunchDiagnostics.record(.modifier, "tap started key=\(settings.modifierKey.rawValue)")
       modifierMonitor = monitor
     } else {
+      LaunchDiagnostics.record(.modifier, "tap failed")
       accessibilityDegraded = true
       refreshMenu()
     }
   }
 
+  /// The coordinator holds the calibration it was built with. A calibration
+  /// finished while the camera is live must replace it, or the app keeps
+  /// tracking on the old map, or on none at all when it started uncalibrated,
+  /// and the modifier appears dead.
+  private func calibrationDidChange() {
+    if coordinator != nil {
+      stopGazePipeline()
+      startGazePipeline()
+    }
+    refreshMenu()
+  }
+
+  /// A grant made in System Settings does not notify the app. Poll the trust
+  /// flag while degraded and rebuild the pipeline when it flips, so the user
+  /// does not have to quit and relaunch after clicking the switch.
+  private func watchForAccessibilityGrant() {
+    accessibilityWatch?.invalidate()
+    accessibilityWatch = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+      MainActor.assumeIsolated {
+        guard let self, AXIsProcessTrusted() else { return }
+        self.accessibilityWatch?.invalidate()
+        self.accessibilityWatch = nil
+        LaunchDiagnostics.record(.modifier, "accessibility granted while running")
+        if self.coordinator != nil {
+          self.stopGazePipeline()
+          self.startGazePipeline()
+        }
+        self.refreshMenu()
+      }
+    }
+  }
+
   private func stopGazePipeline() {
+    pipelineGeneration += 1
+    accessibilityWatch?.invalidate()
+    accessibilityWatch = nil
     modifierMonitor?.stop()
     modifierMonitor = nil
     if let coordinator {
@@ -239,7 +320,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       camera: camera.state,
       calibrationNeeded: !settingsModel.hasCalibration,
       isCaptureBusy: captureActivity.isBusy,
-      accessibilityDegraded: accessibilityDegraded, modelsMissing: modelsMissing)
+      accessibilityDegraded: accessibilityDegraded, modelsMissing: modelsMissing,
+      faceTurned: faceTurned)
   }
 
   private func refreshMenu() {
@@ -313,6 +395,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   @objc private func openAccessibilitySettings() {
+    // The prompting variant registers the app in the Accessibility list so the
+    // user only has to flip the switch, instead of finding the bundle by hand.
+    // The key is the C constant `kAXTrustedCheckOptionPrompt`, spelled out
+    // because the imported global is not concurrency-safe under Swift 6.
+    let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+    _ = AXIsProcessTrustedWithOptions(options)
     guard
       let url = URL(
         string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")

@@ -228,3 +228,9 @@ private let imageSize = SIMD2<Double>(1920, 1080)
     landmarks: imageSpaceLandmarks(canonicalFrame: turned), imageSize: imageSize)
   #expect(abs(abs(headYawRadians(from: result.headVector)) - 20 * Double.pi / 180) <= 0.02)
 }
+
+@Test func headPitchIsZeroFacingTheCameraAndPositiveLookingUp() {
+  #expect(abs(headPitchRadians(from: SIMD3(0, 0, -1))) <= 1e-12)
+  let up = SIMD3(0.0, sin(0.3), -cos(0.3))
+  #expect(abs(headPitchRadians(from: up) - 0.3) <= 1e-9)
+}

@@ -9,6 +9,7 @@ enum MenuBarState: Equatable, Sendable {
   case cameraLive
   case uncalibrated
   case accessibilityDegraded
+  case faceTurned
   case modelsMissing
   case captureBusy
 
@@ -22,6 +23,7 @@ enum MenuBarState: Equatable, Sendable {
     case .cameraLive: "video.fill"
     case .uncalibrated: "scope"
     case .accessibilityDegraded: "accessibility"
+    case .faceTurned: "person.crop.circle.badge.questionmark"
     case .modelsMissing: "cube.transparent"
     case .captureBusy: "camera.viewfinder"
     }
@@ -40,6 +42,7 @@ enum MenuBarState: Equatable, Sendable {
     case .cameraLive: "Tracking"
     case .uncalibrated: "Calibration needed"
     case .accessibilityDegraded: "Paused, Accessibility not granted"
+    case .faceTurned: "Paused, face turned from the camera"
     case .modelsMissing: "Gaze models not found"
     case .captureBusy: "Explaining what you looked at…"
     }
@@ -54,6 +57,7 @@ enum MenuBarState: Equatable, Sendable {
     case .timedOut: "SmartGaze camera did not start"
     case .cameraLive: "SmartGaze camera is live"
     case .uncalibrated: "SmartGaze needs calibration"
+    case .faceTurned: "SmartGaze is paused because the face is turned away from the camera"
     case .accessibilityDegraded:
       "SmartGaze cannot see the modifier key until Accessibility is granted"
     case .modelsMissing: "SmartGaze cannot find its gaze models"
@@ -73,7 +77,7 @@ enum MenuBarState: Equatable, Sendable {
   /// thing to surface.
   static func presenting(
     camera: CameraController.State, calibrationNeeded: Bool, isCaptureBusy: Bool,
-    accessibilityDegraded: Bool = false, modelsMissing: Bool = false
+    accessibilityDegraded: Bool = false, modelsMissing: Bool = false, faceTurned: Bool = false
   ) -> MenuBarState {
     if isCaptureBusy { return .captureBusy }
     // Missing models outrank everything but an in-flight capture. A live camera
@@ -89,6 +93,9 @@ enum MenuBarState: Equatable, Sendable {
     case .live:
       if calibrationNeeded { return .uncalibrated }
       if accessibilityDegraded { return .accessibilityDegraded }
+      // A turned head is the one reason a healthy, calibrated, permitted
+      // session produces nothing on a hold; say so instead of "Tracking".
+      if faceTurned { return .faceTurned }
       return .cameraLive
     }
   }

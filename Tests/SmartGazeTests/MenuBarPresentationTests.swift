@@ -193,3 +193,24 @@ import Testing
   #expect(MenuBarState.accessibilityDegraded.menuStatus == "Paused, Accessibility not granted")
   #expect(!MenuBarState.accessibilityDegraded.menuStatus.lowercased().contains("dwell"))
 }
+
+@Test func aTurnedFaceIsReportedOnlyWhenEverythingElseIsHealthy() {
+  #expect(
+    MenuBarState.presenting(
+      camera: .live, calibrationNeeded: false, isCaptureBusy: false, faceTurned: true)
+      == .faceTurned)
+  #expect(
+    MenuBarState.presenting(
+      camera: .live, calibrationNeeded: true, isCaptureBusy: false, faceTurned: true)
+      == .uncalibrated)
+  #expect(
+    MenuBarState.presenting(
+      camera: .live, calibrationNeeded: false, isCaptureBusy: false,
+      accessibilityDegraded: true, faceTurned: true)
+      == .accessibilityDegraded)
+  #expect(
+    MenuBarState.presenting(
+      camera: .off, calibrationNeeded: false, isCaptureBusy: false, faceTurned: true)
+      == .off)
+  #expect(MenuBarState.faceTurned.menuStatus == "Paused, face turned from the camera")
+}
