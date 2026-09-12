@@ -19,7 +19,7 @@ public enum TriggerInput: Equatable, Sendable {
   case modifierDown(TimeInterval)
   case modifierUp(TimeInterval)
   case blink(BlinkEvent, TimeInterval)
-  case squint(TimeInterval)
+  case squint(SquintEvent, TimeInterval)
   case faceLost(TimeInterval)
   case dismissed(TimeInterval)
   /// The bubble a capture produced is no longer on screen, however it went
@@ -71,8 +71,8 @@ public struct TriggerMachine: Sendable {
       return handleModifierUp(at: time)
     case .blink(let event, let time):
       return handleBlink(event, at: time)
-    case .squint(let time):
-      return handleSquint(at: time)
+    case .squint(let event, let time):
+      return handleSquint(event, at: time)
     case .faceLost:
       lastGazePoint = nil
       return leaveToIdle(emitting: .hideReticle)
@@ -105,7 +105,7 @@ public struct TriggerMachine: Sendable {
   private mutating func handleGaze(_ point: CGPoint, at time: TimeInterval) -> [TriggerEffect] {
     lastGazePoint = point
 
-    guard mode == .modifierHeld else { return [] }
+    guard mode == .modifierHeld || mode == .squint else { return [] }
 
     switch state {
     case .settling(let since):
@@ -115,7 +115,7 @@ public struct TriggerMachine: Sendable {
       state = .armed(region: point, since: since)
       return [.showReticle(at: point)]
     default:
-      // No modifier held: gaze alone never arms or fires.
+      // No hold active: gaze alone never arms or fires.
       return []
     }
   }
@@ -128,17 +128,38 @@ public struct TriggerMachine: Sendable {
   }
 
   private mutating func handleModifierDown(at time: TimeInterval) -> [TriggerEffect] {
-    guard mode == .modifierHeld, state == .idle, !isPresenting else { return [] }
-    state = .settling(since: time)
-    return []
+    guard mode == .modifierHeld else { return [] }
+    return beginHold(at: time)
   }
 
   private mutating func handleModifierUp(at time: TimeInterval) -> [TriggerEffect] {
     guard mode == .modifierHeld else { return [] }
+    return endHold(at: time)
+  }
 
+  /// A squint is the same held gesture as the modifier key: `.started` arms it
+  /// and `.ended` releases it.
+  private mutating func handleSquint(_ event: SquintEvent, at time: TimeInterval) -> [TriggerEffect]
+  {
+    guard mode == .squint else { return [] }
+    switch event {
+    case .started:
+      return beginHold(at: time)
+    case .ended:
+      return endHold(at: time)
+    }
+  }
+
+  private mutating func beginHold(at time: TimeInterval) -> [TriggerEffect] {
+    guard state == .idle, !isPresenting else { return [] }
+    state = .settling(since: time)
+    return []
+  }
+
+  private mutating func endHold(at time: TimeInterval) -> [TriggerEffect] {
     switch state {
     case .settling:
-      // Modifier released before any gaze arrived: nothing to capture.
+      // Released before any gaze arrived: nothing to capture.
       state = .idle
       return []
     case .armed(let region, _):
@@ -156,14 +177,6 @@ public struct TriggerMachine: Sendable {
     guard mode == .doubleBlink, event == .doubleBlink, state == .idle,
       let region = lastGazePoint
     else {
-      return []
-    }
-
-    return attemptFire(at: region, now: time)
-  }
-
-  private mutating func handleSquint(at time: TimeInterval) -> [TriggerEffect] {
-    guard mode == .squint, state == .idle, let region = lastGazePoint else {
       return []
     }
 
@@ -190,7 +203,7 @@ public struct TriggerMachine: Sendable {
     case .modifierDown(let time): time
     case .modifierUp(let time): time
     case .blink(_, let time): time
-    case .squint(let time): time
+    case .squint(_, let time): time
     case .faceLost(let time): time
     case .dismissed(let time): time
     case .presentationEnded(let time): time

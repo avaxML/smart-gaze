@@ -26,6 +26,10 @@ final class CalibrationCoordinator {
     case aborted
   }
 
+  /// The setup visor stays up at least this long so its guidance is legible
+  /// even when the face is found immediately.
+  static let minimumSetupDuration: Duration = .seconds(3)
+
   private(set) var phase: Phase = .preparing
   private(set) var progress: (completed: Int, total: Int) = (0, 0)
   private(set) var setupFace: CalibrationSetupFace?
@@ -104,6 +108,22 @@ final class CalibrationCoordinator {
       depthCentimetres: estimate.iris?.depthCentimetres ?? estimate.faceDistanceCentimeters)
   }
 
+  private nonisolated static func guidanceName(_ guidance: CalibrationSetupGuidance) -> String {
+    switch guidance {
+    case .findingFace: "findingFace"
+    case .moveCloser: "moveCloser"
+    case .moveBack: "moveBack"
+    case .centerFace: "centerFace"
+    case .holdStill: "holdStill"
+    case .ready: "ready"
+    }
+  }
+
+  private nonisolated static func seconds(_ duration: Duration) -> TimeInterval {
+    let components = duration.components
+    return TimeInterval(components.seconds) + TimeInterval(components.attoseconds) / 1e18
+  }
+
   func start() {
     guard runTask == nil else { return }
     phase = .preparing
@@ -141,14 +161,30 @@ final class CalibrationCoordinator {
   }
 
   private func runLoop() async {
+    let setupStart = CACurrentMediaTime()
     phase = .setup(.findingFace)
+    var lastGuidance: String?
     while !Task.isCancelled {
-      if case .setup(.ready) = phase { break }
+      if case .setup(let guidance) = phase {
+        let name = Self.guidanceName(guidance)
+        if name != lastGuidance {
+          lastGuidance = name
+          LaunchDiagnostics.record(.calibration, "setup guidance=\(name)")
+        }
+      }
+      if case .setup(.ready) = phase,
+        CACurrentMediaTime() - setupStart >= Self.seconds(Self.minimumSetupDuration)
+      {
+        break
+      }
       try? await Task.sleep(for: .milliseconds(50))
     }
     if Task.isCancelled { return }
     try? await Task.sleep(for: .milliseconds(600))
     if Task.isCancelled { return }
+    LaunchDiagnostics.record(
+      .calibration,
+      "setup done after \(String(format: "%.3f", CACurrentMediaTime() - setupStart))s")
     setupFace = nil
     setupImage = nil
 

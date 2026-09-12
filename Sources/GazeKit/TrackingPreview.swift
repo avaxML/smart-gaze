@@ -9,7 +9,7 @@ public enum TrackingPreviewInput: Equatable, Sendable {
   case modifierDown(TimeInterval)
   case modifierUp(TimeInterval)
   case blink(BlinkEvent, TimeInterval)
-  case squint(TimeInterval)
+  case squint(SquintEvent, TimeInterval)
   case presentationEnded(TimeInterval)
   case reset
 }
@@ -88,8 +88,8 @@ public struct TrackingPreview: Sendable {
       return apply(machine.handle(.modifierUp(time)))
     case .blink(let event, let time):
       return handleBlink(event, at: time)
-    case .squint(let time):
-      return handleSquint(at: time)
+    case .squint(let event, let time):
+      return handleSquint(event, at: time)
     case .presentationEnded(let time):
       guard advance(to: time) else { return [] }
       return apply(machine.handle(.presentationEnded(time)))
@@ -173,7 +173,8 @@ public struct TrackingPreview: Sendable {
     return apply(machine.handle(.blink(event, time)))
   }
 
-  private mutating func handleSquint(at time: TimeInterval) -> [TriggerEffect] {
+  private mutating func handleSquint(_ event: SquintEvent, at time: TimeInterval) -> [TriggerEffect]
+  {
     guard advance(to: time) else { return [] }
     // As with a blink, the machine keeps the last gaze point across
     // `faceLost`, so a squint after a loss would capture a stale point.
@@ -181,7 +182,7 @@ public struct TrackingPreview: Sendable {
       lastIssue = .squintWhileUntracked(timestamp: time)
       return []
     }
-    return apply(machine.handle(.squint(time)))
+    return apply(machine.handle(.squint(event, time)))
   }
 
   /// Drops the live gaze, the fixation buffer and any arming. Used for tracking

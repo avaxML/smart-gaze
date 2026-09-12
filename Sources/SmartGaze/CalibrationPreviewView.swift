@@ -139,7 +139,7 @@ struct CalibrationPreviewView: View {
     case .doubleBlink:
       "Keep the pointer over the sample. Press B for a single blink, or D for a double blink to capture."
     case .squint:
-      "Keep the pointer over the sample and press S to simulate a squint."
+      "Keep the pointer over the sample, press S to start a squint, move the pointer to aim, press S again to capture."
     case .passiveDwell:
       "Hold the pointer still over the target until the dwell completes."
     }

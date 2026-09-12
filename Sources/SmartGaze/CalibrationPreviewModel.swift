@@ -99,6 +99,7 @@ final class CalibrationPreviewModel {
   var liveSampleSourceAvailable: Bool
   private(set) var isPointerSimulationEnabled = false
   private(set) var simulatedModifierHeld = false
+  private(set) var simulatedSquintActive = false
   private(set) var isPreviewPresented = false
 
   var explanation: ExplanationState = .idle
@@ -165,6 +166,7 @@ final class CalibrationPreviewModel {
     configuration.dwellSeconds = settings.dwellSeconds
     configuration.dispersionThreshold = settings.dispersionThreshold
     simulatedModifierHeld = false
+    simulatedSquintActive = false
     isHoveringTarget = false
     latestHoverPoint = nil
     rebuildTracking()
@@ -186,6 +188,7 @@ final class CalibrationPreviewModel {
     stopPointerSampling()
     cancelExplanation()
     simulatedModifierHeld = false
+    simulatedSquintActive = false
     isHoveringTarget = false
     latestHoverPoint = nil
     tracking.handle(.reset)
@@ -207,6 +210,7 @@ final class CalibrationPreviewModel {
     selectedSource = source
     cancelExplanation()
     simulatedModifierHeld = false
+    simulatedSquintActive = false
     isHoveringTarget = false
     latestHoverPoint = nil
     if source == .live {
@@ -225,6 +229,7 @@ final class CalibrationPreviewModel {
     } else {
       isPointerSimulationEnabled = false
       simulatedModifierHeld = false
+      simulatedSquintActive = false
       isHoveringTarget = false
       latestHoverPoint = nil
       cancelExplanation()
@@ -255,6 +260,7 @@ final class CalibrationPreviewModel {
     // An explicit simulated hold survives the pointer leaving; it only becomes
     // a capture when a later fresh sample is on the target.
     if simulatedModifierHeld { tracking.handle(.modifierDown(clock())) }
+    if simulatedSquintActive { tracking.handle(.squint(.started, clock())) }
   }
 
   func advancePointerSimulation() {
@@ -281,11 +287,18 @@ final class CalibrationPreviewModel {
 
   func simulateSquint() {
     guard isPointerSimulationEnabled else { return }
-    tracking.handle(.squint(clock()))
+    if simulatedSquintActive {
+      simulatedSquintActive = false
+      tracking.handle(.squint(.ended, clock()))
+    } else {
+      simulatedSquintActive = true
+      tracking.handle(.squint(.started, clock()))
+    }
   }
 
   func resetPreview() {
     simulatedModifierHeld = false
+    simulatedSquintActive = false
     isHoveringTarget = false
     latestHoverPoint = nil
     cancelExplanation()
@@ -322,7 +335,14 @@ final class CalibrationPreviewModel {
   /// Local key-bridge entry point for `B`/`D` in double-blink mode and `S` in
   /// squint mode.
   func handleSimulationCommand(_ command: SimulationCommand) -> Bool {
-    guard isSimulationInputActive, isHoveringTarget else { return false }
+    guard isSimulationInputActive else { return false }
+    // Releasing an armed squint works off-target, exactly like a modifier
+    // release; only starting one needs the pointer on the target.
+    if mode == .squint, command == .squint, simulatedSquintActive {
+      simulateSquint()
+      return true
+    }
+    guard isHoveringTarget else { return false }
     switch (mode, command) {
     case (.doubleBlink, .singleBlink): simulateBlink(.blink)
     case (.doubleBlink, .doubleBlink): simulateBlink(.doubleBlink)

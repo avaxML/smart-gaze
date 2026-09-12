@@ -242,3 +242,25 @@ private func cluster(
   #expect(preview.localTriggerCount == 0)
   #expect(preview.lastIssue == .blinkWhileUntracked(timestamp: 0.0))
 }
+
+@Test func squintStartedAndEndedDriveTheReticleAndCapture() {
+  var preview = TrackingPreview(mode: .squint)
+
+  #expect(preview.handle(.sample(CGPoint(x: 6, y: 8), 0.0)) == [])
+  #expect(preview.handle(.squint(.started, 0.1)) == [])
+  #expect(
+    preview.handle(.sample(CGPoint(x: 6, y: 8), 0.2))
+      == [.showReticle(at: CGPoint(x: 6, y: 8))])
+  #expect(
+    preview.handle(.squint(.ended, 0.3))
+      == [.capture(at: CGPoint(x: 6, y: 8)), .hideReticle])
+  #expect(preview.localTriggerCount == 1)
+}
+
+@Test func squintWhileUntrackedIsReportedAndIgnored() {
+  var preview = TrackingPreview(mode: .squint)
+
+  #expect(preview.handle(.squint(.started, 0.0)) == [])
+  #expect(preview.localTriggerCount == 0)
+  #expect(preview.lastIssue == .squintWhileUntracked(timestamp: 0.0))
+}

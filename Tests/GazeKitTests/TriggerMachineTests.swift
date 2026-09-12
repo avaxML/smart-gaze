@@ -269,27 +269,55 @@ private func fixation(at point: CGPoint, startingAt start: TimeInterval) -> Fixa
   #expect(machine.state == .settling(since: 7.0))
 }
 
-@Test func squintModeFiresAtLastGazePoint() {
+@Test func squintModeStartedArmsAndEndedFiresAtTheAimedPoint() {
   var machine = TriggerMachine(mode: .squint)
 
-  #expect(machine.handle(.gaze(CGPoint(x: 6, y: 8), 0.0)) == [])
-  #expect(machine.handle(.squint(0.1)) == [.capture(at: CGPoint(x: 6, y: 8))])
-  #expect(machine.state == .firing(region: CGPoint(x: 6, y: 8)))
+  #expect(machine.handle(.squint(.started, 0.0)) == [])
+  #expect(machine.state == .settling(since: 0.0))
+
+  #expect(
+    machine.handle(.gaze(CGPoint(x: 5, y: 5), 0.1)) == [.showReticle(at: CGPoint(x: 5, y: 5))])
+  #expect(machine.state == .armed(region: CGPoint(x: 5, y: 5), since: 0.0))
+
+  #expect(
+    machine.handle(.gaze(CGPoint(x: 9, y: 9), 0.2)) == [.showReticle(at: CGPoint(x: 9, y: 9))])
+  #expect(machine.state == .armed(region: CGPoint(x: 9, y: 9), since: 0.0))
+
+  #expect(
+    machine.handle(.squint(.ended, 0.3))
+      == [.capture(at: CGPoint(x: 9, y: 9)), .hideReticle])
+  #expect(machine.state == .firing(region: CGPoint(x: 9, y: 9)))
+}
+
+@Test func squintEndedWithoutStartedProducesNothing() {
+  var machine = TriggerMachine(mode: .squint)
+
+  #expect(machine.handle(.squint(.ended, 0.0)) == [])
+  #expect(machine.state == .idle)
 }
 
 @Test func squintModeSecondSquintInsideCooldownFiresNothing() {
   var machine = TriggerMachine(mode: .squint, cooldown: 3.0)
 
-  #expect(machine.handle(.gaze(CGPoint(x: 6, y: 8), 0.0)) == [])
-  #expect(machine.handle(.squint(0.1)) == [.capture(at: CGPoint(x: 6, y: 8))])
-  #expect(machine.handle(.squint(0.2)) == [])
-  #expect(machine.state == .cooldown(until: 3.1))
+  #expect(machine.handle(.squint(.started, 0.0)) == [])
+  #expect(
+    machine.handle(.gaze(CGPoint(x: 6, y: 8), 0.1)) == [.showReticle(at: CGPoint(x: 6, y: 8))])
+  #expect(
+    machine.handle(.squint(.ended, 0.2))
+      == [.capture(at: CGPoint(x: 6, y: 8)), .hideReticle])
+
+  #expect(machine.handle(.squint(.started, 0.3)) == [])
+  #expect(machine.handle(.gaze(CGPoint(x: 6, y: 8), 0.4)) == [])
+  #expect(machine.handle(.squint(.ended, 0.5)) == [])
+  #expect(machine.state == .cooldown(until: 3.2))
 }
 
 @Test func squintModeWithNoGazeYetProducesNoCapture() {
   var machine = TriggerMachine(mode: .squint)
 
-  #expect(machine.handle(.squint(0.0)) == [])
+  #expect(machine.handle(.squint(.started, 0.0)) == [])
+  #expect(machine.state == .settling(since: 0.0))
+  #expect(machine.handle(.squint(.ended, 0.1)) == [])
   #expect(machine.state == .idle)
 }
 
@@ -297,7 +325,7 @@ private func fixation(at point: CGPoint, startingAt start: TimeInterval) -> Fixa
   var machine = TriggerMachine(mode: .modifierHeld)
 
   #expect(machine.handle(.gaze(CGPoint(x: 6, y: 8), 0.0)) == [])
-  #expect(machine.handle(.squint(0.1)) == [])
+  #expect(machine.handle(.squint(.started, 0.1)) == [])
   #expect(machine.state == .idle)
 }
 

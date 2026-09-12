@@ -241,6 +241,29 @@ private func waitUntil(
 }
 
 @MainActor
+@Test func squintCommandTogglesStartAndEnd() {
+  var settings = Settings.default
+  settings.activationMode = .squint
+  let (model, settingsModel) = makePreview(
+    settings: settings, secrets: readySecrets(), factory: nil, clock: TestClock())
+  model.prepareForPresentation(from: settingsModel)
+  model.setPointerSimulationEnabled(true)
+  model.pointerHovered(at: CGPoint(x: 200, y: 150))
+  model.advancePointerSimulation()
+
+  #expect(model.handleSimulationCommand(.squint))
+  #expect(model.simulatedSquintActive)
+  #expect(model.tracking.state == .settling(since: 0.0))
+
+  model.advancePointerSimulation()
+  #expect(model.tracking.state == .armed(region: CGPoint(x: 200, y: 150), since: 0.0))
+
+  #expect(model.handleSimulationCommand(.squint))
+  #expect(model.simulatedSquintActive == false)
+  #expect(model.tracking.localTriggerCount == 1)
+}
+
+@MainActor
 @Test func stopClearsSimulationStateAndInputActivation() {
   var settings = Settings.default
   settings.activationMode = .modifierHeld

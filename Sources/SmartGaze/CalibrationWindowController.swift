@@ -23,6 +23,13 @@ final class CalibrationWindowController {
     GazeCoordinator.unionOfActiveDisplays()
   }
 
+  /// The screen backed by `CGMainDisplayID()`, not the one holding the key
+  /// window, so the visor and the Quartz-space targets share a display.
+  private static func isMainDisplay(_ screen: NSScreen) -> Bool {
+    let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
+    return number?.uint32Value == CGMainDisplayID()
+  }
+
   /// The main display's window, for an in-process screenshot harness.
   var screenshotWindow: NSWindow? { mainDisplayWindow }
 
@@ -35,7 +42,7 @@ final class CalibrationWindowController {
 
   func present(onCompletion: @escaping (CalibrationResult?) -> Void) {
     let mainHeight = CGDisplayBounds(CGMainDisplayID()).height
-    let mainScreen = NSScreen.main ?? NSScreen.screens.first
+    let mainScreen = NSScreen.screens.first(where: Self.isMainDisplay) ?? NSScreen.screens.first
     windows = NSScreen.screens.map { screen in
       makeWindow(
         for: screen, mainDisplayHeight: mainHeight, showsSetup: screen == mainScreen)

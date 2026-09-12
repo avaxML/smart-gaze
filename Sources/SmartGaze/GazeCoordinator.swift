@@ -45,6 +45,7 @@ actor GazeCoordinator {
   private var faceLoss = FaceLossDebounce()
   private var blinkDetector = BlinkDetector()
   private var squintDetector = SquintDetector()
+  private var observationCount = 0
   private var headPose = HeadPoseGate()
   private let calibration: CalibrationMap?
   private let headTranslation: HeadTranslationCorrection?
@@ -206,13 +207,27 @@ actor GazeCoordinator {
   /// gaze pipeline itself produced an estimate this frame.
   func handleObservation(_ observation: FaceObservation?, at timestamp: TimeInterval) async {
     guard let observation else { return }
+    observationCount += 1
     let left = eyeAspectRatio(observation.leftEye)
     let right = eyeAspectRatio(observation.rightEye)
     if let event = blinkDetector.add(left: left, right: right, at: timestamp) {
       await apply(tracking.handle(.blink(event, timestamp)))
     }
-    if squintDetector.add(left: left, right: right, at: timestamp) {
-      await apply(tracking.handle(.squint(timestamp)))
+    if let event = squintDetector.add(left: left, right: right, at: timestamp) {
+      switch event {
+      case .started: LaunchDiagnostics.record(.gaze, "squint started")
+      case .ended: LaunchDiagnostics.record(.gaze, "squint ended")
+      }
+      await apply(tracking.handle(.squint(event, timestamp)))
+    }
+    if observationCount % 30 == 0 {
+      let baseline = squintDetector.openBaseline
+      let narrowedBelow = SquintDetector.squintRatio * baseline
+      LaunchDiagnostics.record(
+        .gaze,
+        "ear left=\(String(format: "%.3f", left)) right=\(String(format: "%.3f", right)) "
+          + "baseline=\(String(format: "%.3f", baseline)) "
+          + "narrowedBelow=\(String(format: "%.3f", narrowedBelow))")
     }
   }
 
