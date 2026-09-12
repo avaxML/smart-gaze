@@ -1,5 +1,6 @@
 import CoreVideo
 import Foundation
+import GazeKit
 import Testing
 
 @testable import Perception
@@ -32,6 +33,22 @@ private func blackBGRAPixelBuffer(width: Int, height: Int) throws -> CVPixelBuff
   let base = try #require(CVPixelBufferGetBaseAddress(buffer))
   memset(base, 0, CVPixelBufferGetBytesPerRow(buffer) * height)
   return buffer
+}
+
+@Test func irisDepthsUseTheCropScaleAndFrameWidth() throws {
+  let contour = (0..<71).map { _ in SIMD3<Float>(1, 2, 10) }
+  let iris = (0..<5).map { _ in SIMD3<Float>(1, 2, 10) }
+  let transform = try #require(ProjectiveTransform(matrix: [1, 0, 0, 0, 1, 0, 0, 0, 1]))
+
+  let estimate = try #require(
+    makeEyeIrisEstimate(
+      contour: contour, iris: iris, transform: transform, flip: false, cropPixelSize: 64,
+      scale: 2.5, frameSize: CGSize(width: 1000, height: 1000)))
+
+  #expect(estimate.contourDepth.count == 71)
+  #expect(estimate.irisDepth.count == 5)
+  #expect(estimate.contourDepth.allSatisfy { $0 == 0.025 })
+  #expect(estimate.irisDepth.allSatisfy { $0 == 0.025 })
 }
 
 @Test func missingFaceMeshModelPathIsReported() {

@@ -73,14 +73,22 @@ public struct EyeIrisEstimate: Equatable, Sendable {
   public let contour: [CGPoint]
   /// The 5 iris points: centre, horizontal extremes, vertical extremes.
   public let irisPoints: [CGPoint]
+  /// Each contour point's crop `z` scaled to frame pixels and divided by the
+  /// frame width, one per contour point.
+  public let contourDepth: [Double]
+  /// Each iris point's depth, scaled like `contourDepth`, one per iris point.
+  public let irisDepth: [Double]
 
   public init(
-    irisCenter: CGPoint, irisDiameterPixels: Double, contour: [CGPoint], irisPoints: [CGPoint]
+    irisCenter: CGPoint, irisDiameterPixels: Double, contour: [CGPoint], irisPoints: [CGPoint],
+    contourDepth: [Double] = [], irisDepth: [Double] = []
   ) {
     self.irisCenter = irisCenter
     self.irisDiameterPixels = irisDiameterPixels
     self.contour = contour
     self.irisPoints = irisPoints
+    self.contourDepth = contourDepth
+    self.irisDepth = irisDepth
   }
 }
 
@@ -98,6 +106,71 @@ public struct IrisEstimate: Equatable, Sendable {
     self.imageRightEye = imageRightEye
     self.depthCentimetres = depthCentimetres
   }
+}
+
+/// Maps one eye's crop-space iris landmarks onto a frame-normalized
+/// `EyeIrisEstimate`, with each point's `z` scaled to a frame-width depth
+/// fraction. Pure so the mapping is testable without a model.
+func makeEyeIrisEstimate(
+  contour: [SIMD3<Float>],
+  iris: [SIMD3<Float>],
+  transform: ProjectiveTransform,
+  flip: Bool,
+  cropPixelSize: Int,
+  scale: Double,
+  frameSize: CGSize
+) -> EyeIrisEstimate? {
+  let width = Double(frameSize.width)
+  let height = Double(frameSize.height)
+  guard width > 0, height > 0 else { return nil }
+
+  func framePoint(_ point: SIMD3<Float>) -> (pixel: CGPoint, depth: Double)? {
+    var cropPoint = SIMD3<Double>(Double(point.x), Double(point.y), Double(point.z))
+    if flip {
+      cropPoint = IrisGeometry.unflipped(cropPoint, width: cropPixelSize)
+    }
+    guard let mapped = transform.map(CGPoint(x: cropPoint.x, y: cropPoint.y)) else {
+      return nil
+    }
+    return (
+      CGPoint(x: Double(mapped.x), y: Double(mapped.y)),
+      IrisGeometry.depthFraction(cropZ: cropPoint.z, scale: scale, frameWidth: width)
+    )
+  }
+
+  var contourPoints: [CGPoint] = []
+  var contourDepth: [Double] = []
+  contourPoints.reserveCapacity(contour.count)
+  contourDepth.reserveCapacity(contour.count)
+  for point in contour {
+    guard let mapped = framePoint(point) else { return nil }
+    contourPoints.append(CGPoint(x: mapped.pixel.x / width, y: mapped.pixel.y / height))
+    contourDepth.append(mapped.depth)
+  }
+
+  var irisPoints: [CGPoint] = []
+  var irisDepth: [Double] = []
+  var irisPixels: [SIMD2<Double>] = []
+  irisPoints.reserveCapacity(iris.count)
+  irisDepth.reserveCapacity(iris.count)
+  irisPixels.reserveCapacity(iris.count)
+  for point in iris {
+    guard let mapped = framePoint(point) else { return nil }
+    irisPoints.append(CGPoint(x: mapped.pixel.x / width, y: mapped.pixel.y / height))
+    irisDepth.append(mapped.depth)
+    irisPixels.append(SIMD2(Double(mapped.pixel.x), Double(mapped.pixel.y)))
+  }
+  guard let irisCenter = irisPoints.first,
+    let diameterPixels = IrisGeometry.irisDiameter(irisPixels)
+  else { return nil }
+
+  return EyeIrisEstimate(
+    irisCenter: irisCenter,
+    irisDiameterPixels: diameterPixels,
+    contour: contourPoints,
+    irisPoints: irisPoints,
+    contourDepth: contourDepth,
+    irisDepth: irisDepth)
 }
 
 /// Turns a camera frame into a normalized gaze point.
@@ -317,47 +390,14 @@ public actor GazePipeline {
     guard let transform = crop.cropToFrame(cropPixelSize: Double(cropPixelSize)) else {
       return nil
     }
-
-    func framePoint(_ point: SIMD3<Float>) -> CGPoint? {
-      var cropPoint = SIMD3<Double>(Double(point.x), Double(point.y), Double(point.z))
-      if flip {
-        cropPoint = IrisGeometry.unflipped(cropPoint, width: cropPixelSize)
-      }
-      guard let mapped = transform.map(CGPoint(x: cropPoint.x, y: cropPoint.y)) else {
-        return nil
-      }
-      return CGPoint(x: Double(mapped.x), y: Double(mapped.y))
-    }
-
-    var contour: [CGPoint] = []
-    contour.reserveCapacity(result.contour.count)
-    for point in result.contour {
-      guard let mapped = framePoint(point) else { return nil }
-      contour.append(mapped)
-    }
-
-    var irisPoints: [CGPoint] = []
-    var irisPixels: [SIMD2<Double>] = []
-    irisPoints.reserveCapacity(result.iris.count)
-    irisPixels.reserveCapacity(result.iris.count)
-    for point in result.iris {
-      guard let mapped = framePoint(point) else { return nil }
-      irisPoints.append(mapped)
-      irisPixels.append(SIMD2(Double(mapped.x), Double(mapped.y)))
-    }
-    guard let irisCenter = irisPoints.first,
-      let diameterPixels = IrisGeometry.irisDiameter(irisPixels),
+    guard
+      let estimate = makeEyeIrisEstimate(
+        contour: result.contour, iris: result.iris, transform: transform, flip: flip,
+        cropPixelSize: cropPixelSize, scale: crop.scale(cropPixelSize: Double(cropPixelSize)),
+        frameSize: frameSize),
       let depth = IrisGeometry.depthCentimetres(
-        irisDiameterPixels: diameterPixels, focalLengthPixels: focalLengthPixels)
+        irisDiameterPixels: estimate.irisDiameterPixels, focalLengthPixels: focalLengthPixels)
     else { return nil }
-
-    let width = Double(frameSize.width)
-    let height = Double(frameSize.height)
-    let estimate = EyeIrisEstimate(
-      irisCenter: CGPoint(x: irisCenter.x / width, y: irisCenter.y / height),
-      irisDiameterPixels: diameterPixels,
-      contour: contour.map { CGPoint(x: $0.x / width, y: $0.y / height) },
-      irisPoints: irisPoints.map { CGPoint(x: $0.x / width, y: $0.y / height) })
     return (estimate, depth)
   }
 

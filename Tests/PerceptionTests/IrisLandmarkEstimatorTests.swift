@@ -104,6 +104,31 @@ private func uniformInput() throws -> IrisLandmarkInput {
     #expect(result.iris.allSatisfy { (-16...80).contains($0.x) && (-16...80).contains($0.y) })
   }
 
+  @Test func midGreyFixtureContourOrderDoesNotCloseAsOneLoop() async throws {
+    let estimator = try IrisLandmarkEstimator(modelURL: requireModelURL(), computeUnits: .cpuOnly)
+    let result = try await estimator.landmarks(for: uniformInput())
+
+    for (index, point) in result.contour.enumerated() {
+      print(String(format: "contour[%d] = (%.4f, %.4f, %.4f)", index, point.x, point.y, point.z))
+    }
+
+    // A single closed loop through indices 0...15 would have exactly one large
+    // gap. The model instead lays out two lid chains (0...8 and 9...15), each
+    // crossing the eye by ~20 crop pixels at 8->9 and 15->0, so the visor
+    // keeps the contour as points rather than connecting them.
+    var gaps: [Double] = []
+    for index in 0..<16 {
+      let a = result.contour[index]
+      let b = result.contour[(index + 1) % 16]
+      let dx = Double(a.x - b.x)
+      let dy = Double(a.y - b.y)
+      gaps.append((dx * dx + dy * dy).squareRoot())
+    }
+    let median = gaps.sorted()[8]
+    let largeGaps = gaps.filter { $0 > 3 * median }.count
+    #expect(largeGaps == 2)
+  }
+
   @Test func alreadyCancelledTaskIsRejectedAtEntry() async throws {
     let estimator = try IrisLandmarkEstimator(modelURL: requireModelURL(), computeUnits: .cpuOnly)
     let input = try uniformInput()

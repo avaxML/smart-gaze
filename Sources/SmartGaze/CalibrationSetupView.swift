@@ -233,44 +233,97 @@ struct CalibrationSetupView: View {
       with: .linearGradient(
         feather, startPoint: .zero, endPoint: CGPoint(x: 0, y: size.height)))
 
-    let targets = meshTargets(band: band, visorSize: size)
-    if !targets.isEmpty {
+    let geometry = Self.visorGeometry(
+      face: face, band: band, frameSize: frameSize, visorSize: size)
+    if !geometry.meshNodes.isEmpty {
       animation.advance(
-        toward: targets, aspectRatios: face?.eyeAspectRatios, at: timestamp,
-        reduceMotion: reduceMotion)
+        toward: geometry.meshNodes, eye: geometry.eye, aspectRatios: face?.eyeAspectRatios,
+        at: timestamp, reduceMotion: reduceMotion)
     }
     let nodes = animation.currentNodes
     drawMesh(nodes: nodes, size: size, in: mirrored)
 
-    guard let face else { return }
+    guard let eye = animation.currentEyeGeometry else { return }
     let rings = animation.ringScales
-    draw(contour: face.imageRightEyeContour, band: band, size: size, nodes: nodes, in: mirrored)
-    draw(contour: face.imageLeftEyeContour, band: band, size: size, nodes: nodes, in: mirrored)
-    draw(
-      iris: face.imageRightIris, band: band, size: size, ringScale: rings.right, in: mirrored)
-    draw(iris: face.imageLeftIris, band: band, size: size, ringScale: rings.left, in: mirrored)
+    draw(contour: eye.imageRightContour, in: mirrored)
+    draw(contour: eye.imageLeftContour, in: mirrored)
+    draw(iris: eye.imageRightIris, ringScale: rings.right, in: mirrored)
+    draw(iris: eye.imageLeftIris, ringScale: rings.left, in: mirrored)
   }
 
-  private func meshTargets(band: CGRect, visorSize: CGSize) -> [Int: VisorAnimation.Node] {
-    guard let face, !face.mesh.isEmpty else { return [:] }
-    let base = face.mesh.map { Self.bandPoint($0, band: band, frameSize: frameSize) }
+  private static func visorGeometry(
+    face: CalibrationSetupFace?, band: CGRect, frameSize: CGSize, visorSize: CGSize
+  ) -> VisorGeometry {
+    guard let face, !face.mesh.isEmpty else { return VisorGeometry(meshNodes: [:], eye: nil) }
+
     let yaw = face.rotation.map { headYawRadians(from: headVector(from: $0)) } ?? 0
     let pitch = face.rotation.map { headPitchRadians(from: headVector(from: $0)) } ?? 0
+
+    func bandPoints(_ points: [CGPoint]) -> [SIMD2<Double>] {
+      points.map { bandPoint($0, band: band, frameSize: frameSize) }
+    }
+    func padded(_ depths: [Double], to count: Int) -> [Double] {
+      depths.count >= count
+        ? Array(depths.prefix(count))
+        : depths + [Double](repeating: 0, count: count - depths.count)
+    }
+
+    let meshPoints = bandPoints(face.mesh)
+    let leftContourPoints = bandPoints(face.imageLeftEyeContour)
+    let rightContourPoints = bandPoints(face.imageRightEyeContour)
+    let leftIrisPoints = bandPoints(face.imageLeftIris)
+    let rightIrisPoints = bandPoints(face.imageRightIris)
+
+    let points =
+      meshPoints + leftContourPoints + rightContourPoints + leftIrisPoints + rightIrisPoints
+    let depths =
+      padded(face.meshDepth, to: meshPoints.count)
+      + padded(face.imageLeftEyeContourDepth, to: leftContourPoints.count)
+      + padded(face.imageRightEyeContourDepth, to: rightContourPoints.count)
+      + padded(face.imageLeftIrisDepth, to: leftIrisPoints.count)
+      + padded(face.imageRightIrisDepth, to: rightIrisPoints.count)
+
     let projected = VisorProjection.project(
-      points: base, depths: face.meshDepth, yawRadians: yaw, pitchRadians: pitch)
-    guard !projected.isEmpty else { return [:] }
-    let minX = projected.map(\.x).min() ?? 0
-    let maxX = projected.map(\.x).max() ?? 1
+      points: points, depths: depths, yawRadians: yaw, pitchRadians: pitch)
+
+    var cursor = 0
+    func take(_ count: Int) -> [VisorProjection.Point] {
+      let slice = Array(projected[cursor..<(cursor + count)])
+      cursor += count
+      return slice
+    }
+    let projectedMesh = take(meshPoints.count)
+    let projectedLeftContour = take(leftContourPoints.count)
+    let projectedRightContour = take(rightContourPoints.count)
+    let projectedLeftIris = take(leftIrisPoints.count)
+    let projectedRightIris = take(rightIrisPoints.count)
+    guard !projectedMesh.isEmpty else { return VisorGeometry(meshNodes: [:], eye: nil) }
+
+    let minX = projectedMesh.map(\.x).min() ?? 0
+    let maxX = projectedMesh.map(\.x).max() ?? 1
     let span = max(maxX - minX, 0.0001)
     var targets: [Int: VisorAnimation.Node] = [:]
-    targets.reserveCapacity(projected.count)
-    for (index, point) in projected.enumerated() {
+    targets.reserveCapacity(projectedMesh.count)
+    for (index, point) in projectedMesh.enumerated() {
       targets[index] = VisorAnimation.Node(
-        point: Self.visorPoint(point, band: band, frameSize: frameSize, visorSize: visorSize),
+        point: visorPoint(point, band: band, frameSize: frameSize, visorSize: visorSize),
         depth: point.depth,
         column: (point.x - minX) / span)
     }
-    return targets
+    func eyePoints(_ points: [VisorProjection.Point]) -> [VisorEyePoint] {
+      points.map {
+        VisorEyePoint(
+          point: visorPoint($0, band: band, frameSize: frameSize, visorSize: visorSize),
+          depth: $0.depth)
+      }
+    }
+    return VisorGeometry(
+      meshNodes: targets,
+      eye: VisorAnimation.EyeGeometry(
+        imageLeftContour: eyePoints(projectedLeftContour),
+        imageRightContour: eyePoints(projectedRightContour),
+        imageLeftIris: eyePoints(projectedLeftIris),
+        imageRightIris: eyePoints(projectedRightIris)))
   }
 
   nonisolated private static func edges(from triangles: [SIMD3<Int32>]) -> Set<MeshEdge> {
@@ -310,23 +363,6 @@ struct CalibrationSetupView: View {
     let distance = abs(visorX - scan * Double(visorWidth))
     guard distance < halfWidth else { return 1 }
     return 1 + (Self.scanBoost - 1) * (1 - distance / halfWidth)
-  }
-
-  private func nearestDepth(
-    _ visorPoint: CGPoint, nodes: [Int: VisorAnimation.Node]
-  ) -> Double {
-    var best = 0.5
-    var bestDistance = Double.greatestFiniteMagnitude
-    for node in nodes.values {
-      let dx = Double(node.point.x - visorPoint.x)
-      let dy = Double(node.point.y - visorPoint.y)
-      let distance = dx * dx + dy * dy
-      if distance < bestDistance {
-        bestDistance = distance
-        best = node.depth
-      }
-    }
-    return best
   }
 
   nonisolated private static func pixelBand(_ band: CGRect, frameSize: CGSize) -> CGRect {
@@ -413,42 +449,47 @@ struct CalibrationSetupView: View {
     context.fill(Path(ellipseIn: rect), with: .color(.white.opacity(opacity)))
   }
 
-  private func draw(
-    contour: [CGPoint], band: CGRect, size: CGSize, nodes: [Int: VisorAnimation.Node],
-    in context: GraphicsContext
-  ) {
+  private func draw(contour: [VisorEyePoint], in context: GraphicsContext) {
     for point in contour {
-      let projected = Self.project(point, band: band, frameSize: frameSize, visorSize: size)
-      let depth = nearestDepth(projected, nodes: nodes)
-      let opacity = Self.contourDotOpacity * (0.5 + 0.5 * (1 - depth))
-      drawDot(
-        at: projected, opacity: opacity, diameter: Self.contourDotDiameter,
-        in: context)
+      let opacity = Self.contourDotOpacity * (0.5 + 0.5 * (1 - point.depth))
+      drawDot(at: point.point, opacity: opacity, diameter: Self.contourDotDiameter, in: context)
     }
   }
 
   private func draw(
-    iris: [CGPoint], band: CGRect, size: CGSize, ringScale: Double, in context: GraphicsContext
+    iris: [VisorEyePoint], ringScale: Double, in context: GraphicsContext
   ) {
     guard iris.count >= 5 else { return }
-    let center = Self.project(iris[0], band: band, frameSize: frameSize, visorSize: size)
-    let rim = iris.dropFirst().prefix(4).map {
-      Self.project($0, band: band, frameSize: frameSize, visorSize: size)
-    }
+    let center = iris[0].point
+    let rim = iris.dropFirst().prefix(4).map(\.point)
     guard !rim.isEmpty else { return }
-    let radius =
-      rim.map { hypot(Double($0.x - center.x), Double($0.y - center.y)) }.reduce(0, +)
-      / Double(rim.count)
     let scale = ringScale * (1 + Self.irisPulseScale * pulse)
-    let ring = CGRect(
-      x: center.x - CGFloat(radius * scale),
-      y: center.y - CGFloat(radius * scale),
-      width: CGFloat(2 * radius * scale),
-      height: CGFloat(2 * radius * scale)
-    )
-    context.stroke(
-      Path(ellipseIn: ring), with: .color(accent.opacity(Self.irisRingOpacity)),
-      lineWidth: Self.irisRingWidth)
+    if rim.count >= 4, let fit = IrisRingGeometry.ellipse(throughRim: rim),
+      fit.semiMajor * scale >= 1, fit.semiMinor * scale >= 1
+    {
+      let major = CGFloat(fit.semiMajor * scale)
+      let minor = CGFloat(fit.semiMinor * scale)
+      let rect = CGRect(x: -major, y: -minor, width: 2 * major, height: 2 * minor)
+      let path =
+        Path(ellipseIn: rect)
+        .applying(CGAffineTransform(rotationAngle: fit.angleRadians))
+        .applying(CGAffineTransform(translationX: fit.center.x, y: fit.center.y))
+      context.stroke(
+        path, with: .color(accent.opacity(Self.irisRingOpacity)), lineWidth: Self.irisRingWidth)
+    } else {
+      let radius =
+        rim.map { hypot(Double($0.x - center.x), Double($0.y - center.y)) }.reduce(0, +)
+        / Double(rim.count)
+      let ring = CGRect(
+        x: center.x - CGFloat(radius * scale),
+        y: center.y - CGFloat(radius * scale),
+        width: CGFloat(2 * radius * scale),
+        height: CGFloat(2 * radius * scale)
+      )
+      context.stroke(
+        Path(ellipseIn: ring), with: .color(accent.opacity(Self.irisRingOpacity)),
+        lineWidth: Self.irisRingWidth)
+    }
     let dotRadius = Self.irisDotDiameter / 2
     let dot = CGRect(
       x: center.x - dotRadius, y: center.y - dotRadius, width: Self.irisDotDiameter,
@@ -541,6 +582,20 @@ private struct MeshEdge: Hashable {
   }
 }
 
+/// One projected eye point in the visor's own space, so it stays put when the
+/// face is lost and the eye band disappears.
+private struct VisorEyePoint {
+  var point: CGPoint
+  var depth: Double
+}
+
+/// The visor's projection of one frame: the mesh's spring targets plus the eye
+/// geometry that shares the same projection.
+private struct VisorGeometry {
+  var meshNodes: [Int: VisorAnimation.Node]
+  var eye: VisorAnimation.EyeGeometry?
+}
+
 /// Holds the visor's projected points and iris-ring scales between timeline
 /// ticks and steps each toward its target with a critically damped spring, so a
 /// head turn or a blink never snaps. Reference-typed because it is advanced
@@ -552,8 +607,16 @@ private final class VisorAnimation {
     var column: Double
   }
 
+  struct EyeGeometry {
+    var imageLeftContour: [VisorEyePoint]
+    var imageRightContour: [VisorEyePoint]
+    var imageLeftIris: [VisorEyePoint]
+    var imageRightIris: [VisorEyePoint]
+  }
+
   private var nodes: [Int: Node] = [:]
   private var velocities: [Int: CGPoint] = [:]
+  private var eye: EyeGeometry?
   private var leftRing: Double = 1
   private var rightRing: Double = 1
   private var leftRingVelocity: Double = 0
@@ -561,14 +624,17 @@ private final class VisorAnimation {
   private var lastTimestamp: TimeInterval?
 
   var currentNodes: [Int: Node] { nodes }
+  var currentEyeGeometry: EyeGeometry? { eye }
   var ringScales: (left: Double, right: Double) { (leftRing, rightRing) }
 
   func advance(
     toward targets: [Int: Node],
+    eye: EyeGeometry?,
     aspectRatios: (left: Double, right: Double)?,
     at timestamp: TimeInterval,
     reduceMotion: Bool
   ) {
+    if let eye { self.eye = eye }
     let leftTarget = Self.ringScale(aspectRatios?.left)
     let rightTarget = Self.ringScale(aspectRatios?.right)
 

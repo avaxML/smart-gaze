@@ -98,6 +98,36 @@ private func face(center: CGPoint = CGPoint(x: 0.5, y: 0.5), depth: Double? = 60
   #expect(short.eyeBand == nil)
 }
 
+@Test func faceCarriesTheEyeDepthArraysAndComparesThem() {
+  let contourDepth = (0..<71).map { Double($0) / 100 }
+  let irisDepth = (0..<5).map { Double($0) / 100 }
+  let face = CalibrationSetupFace(
+    mesh: [CGPoint(x: 0.5, y: 0.5)],
+    imageLeftEyeContour: [CGPoint](repeating: .zero, count: 71),
+    imageRightEyeContour: [CGPoint](repeating: .zero, count: 71),
+    imageLeftIris: [CGPoint](repeating: .zero, count: 5),
+    imageRightIris: [CGPoint](repeating: .zero, count: 5),
+    depthCentimetres: 60,
+    imageLeftEyeContourDepth: contourDepth,
+    imageRightEyeContourDepth: contourDepth,
+    imageLeftIrisDepth: irisDepth,
+    imageRightIrisDepth: irisDepth)
+
+  #expect(face.imageLeftEyeContourDepth == contourDepth)
+  #expect(face.imageRightEyeContourDepth == contourDepth)
+  #expect(face.imageLeftIrisDepth == irisDepth)
+  #expect(face.imageRightIrisDepth == irisDepth)
+
+  let withoutDepths = CalibrationSetupFace(
+    mesh: [CGPoint(x: 0.5, y: 0.5)],
+    imageLeftEyeContour: [CGPoint](repeating: .zero, count: 71),
+    imageRightEyeContour: [CGPoint](repeating: .zero, count: 71),
+    imageLeftIris: [CGPoint](repeating: .zero, count: 5),
+    imageRightIris: [CGPoint](repeating: .zero, count: 5),
+    depthCentimetres: 60)
+  #expect(face != withoutDepths)
+}
+
 @Test func reducerWalksFromSearchToHoldToReady() throws {
   var reducer = CalibrationSetupReducer()
 

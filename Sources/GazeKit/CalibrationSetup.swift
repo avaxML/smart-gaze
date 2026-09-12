@@ -14,6 +14,14 @@ public struct CalibrationSetupFace: Equatable, Sendable {
   /// in the mesh's own normalized units. Empty when the pipeline did not
   /// provide a depth.
   public let meshDepth: [Double]
+  /// Each contour point's depth, one per contour point, in the same units as
+  /// `meshDepth`. Empty when the pipeline did not provide one.
+  public let imageLeftEyeContourDepth: [Double]
+  public let imageRightEyeContourDepth: [Double]
+  /// Each iris point's depth, one per iris point, in the same units as
+  /// `meshDepth`. Empty when the pipeline did not provide one.
+  public let imageLeftIrisDepth: [Double]
+  public let imageRightIrisDepth: [Double]
   /// The head rotation the pipeline fitted this frame, `nil` without one.
   public let rotation: RigidRotation?
   /// Each eye's aspect ratio from `eyeAspectRatio`, image-left then
@@ -28,6 +36,10 @@ public struct CalibrationSetupFace: Equatable, Sendable {
     imageRightIris: [CGPoint],
     depthCentimetres: Double?,
     meshDepth: [Double] = [],
+    imageLeftEyeContourDepth: [Double] = [],
+    imageRightEyeContourDepth: [Double] = [],
+    imageLeftIrisDepth: [Double] = [],
+    imageRightIrisDepth: [Double] = [],
     rotation: RigidRotation? = nil,
     eyeAspectRatios: (left: Double, right: Double)? = nil
   ) {
@@ -38,6 +50,10 @@ public struct CalibrationSetupFace: Equatable, Sendable {
     self.imageRightIris = imageRightIris
     self.depthCentimetres = depthCentimetres
     self.meshDepth = meshDepth
+    self.imageLeftEyeContourDepth = imageLeftEyeContourDepth
+    self.imageRightEyeContourDepth = imageRightEyeContourDepth
+    self.imageLeftIrisDepth = imageLeftIrisDepth
+    self.imageRightIrisDepth = imageRightIrisDepth
     self.rotation = rotation
     self.eyeAspectRatios = eyeAspectRatios
   }
@@ -51,6 +67,10 @@ public struct CalibrationSetupFace: Equatable, Sendable {
       && lhs.imageRightIris == rhs.imageRightIris
       && lhs.depthCentimetres == rhs.depthCentimetres
       && lhs.meshDepth == rhs.meshDepth
+      && lhs.imageLeftEyeContourDepth == rhs.imageLeftEyeContourDepth
+      && lhs.imageRightEyeContourDepth == rhs.imageRightEyeContourDepth
+      && lhs.imageLeftIrisDepth == rhs.imageLeftIrisDepth
+      && lhs.imageRightIrisDepth == rhs.imageRightIrisDepth
       && lhs.rotation == rhs.rotation
       && lhs.eyeAspectRatios?.left == rhs.eyeAspectRatios?.left
       && lhs.eyeAspectRatios?.right == rhs.eyeAspectRatios?.right

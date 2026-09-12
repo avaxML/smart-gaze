@@ -80,6 +80,12 @@ public enum IrisGeometry {
     SIMD3<Double>(Double(width - 1) - point.x, point.y, point.z)
   }
 
+  /// A crop-space `z` mapped through `scale` to frame pixels and divided by
+  /// the frame width, the same units as `GazeEstimate.meshDepth`.
+  public static func depthFraction(cropZ: Double, scale: Double, frameWidth: Double) -> Double {
+    cropZ * scale / frameWidth
+  }
+
   /// Distance between iris points 1 and 3, the horizontal extremes, in whatever
   /// space the points are in.
   ///

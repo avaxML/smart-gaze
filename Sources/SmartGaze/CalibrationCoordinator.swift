@@ -114,6 +114,10 @@ final class CalibrationCoordinator {
       imageRightIris: estimate.iris?.imageRightEye.irisPoints ?? [],
       depthCentimetres: estimate.iris?.depthCentimetres ?? estimate.faceDistanceCentimeters,
       meshDepth: estimate.meshDepth,
+      imageLeftEyeContourDepth: estimate.iris?.imageLeftEye.contourDepth ?? [],
+      imageRightEyeContourDepth: estimate.iris?.imageRightEye.contourDepth ?? [],
+      imageLeftIrisDepth: estimate.iris?.imageLeftEye.irisDepth ?? [],
+      imageRightIrisDepth: estimate.iris?.imageRightEye.irisDepth ?? [],
       rotation: estimate.headRotation,
       eyeAspectRatios: eyeAspectRatios(mesh: estimate.meshLandmarks))
   }

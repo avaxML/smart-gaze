@@ -152,10 +152,14 @@ private func solveCalibrationFixture(scale: Double = 1) throws -> CalibrationMap
     CGPoint(x: 0.35, y: 0.5),
     CGPoint(x: 0.4, y: 0.45),
   ]
+  let contourDepth = (0..<71).map { Double($0) / 1000 }
+  let irisDepth = (0..<5).map { Double($0) / 1000 }
   let leftEye = EyeIrisEstimate(
-    irisCenter: irisPoints[0], irisDiameterPixels: 12, contour: contour, irisPoints: irisPoints)
+    irisCenter: irisPoints[0], irisDiameterPixels: 12, contour: contour, irisPoints: irisPoints,
+    contourDepth: contourDepth, irisDepth: irisDepth)
   let rightEye = EyeIrisEstimate(
-    irisCenter: irisPoints[0], irisDiameterPixels: 12, contour: contour, irisPoints: irisPoints)
+    irisCenter: irisPoints[0], irisDiameterPixels: 12, contour: contour, irisPoints: irisPoints,
+    contourDepth: contourDepth, irisDepth: irisDepth)
   let estimate = GazeEstimate(
     gaze: NormalizedGazePoint(x: 0, y: 0),
     faceDistanceCentimeters: 50,
@@ -172,6 +176,10 @@ private func solveCalibrationFixture(scale: Double = 1) throws -> CalibrationMap
   #expect(face.imageRightIris.count == 5)
   #expect(face.depthCentimetres == 61.5)
   #expect(face.meshDepth.count == 468)
+  #expect(face.imageLeftEyeContourDepth == contourDepth)
+  #expect(face.imageRightEyeContourDepth == contourDepth)
+  #expect(face.imageLeftIrisDepth == irisDepth)
+  #expect(face.imageRightIrisDepth == irisDepth)
 }
 
 @Test func setupFaceCarriesRotationAndTheEyeAspectRatios() throws {

@@ -123,6 +123,27 @@ private func maxLuminance(
   return best
 }
 
+private func maxChroma(
+  _ pixels: [UInt8], width: Int, height: Int, centerX: Int, centerY: Int, radius: Int
+) -> Int {
+  let minX = max(0, centerX - radius)
+  let maxX = min(width - 1, centerX + radius)
+  let minY = max(0, centerY - radius)
+  let maxY = min(height - 1, centerY + radius)
+  guard minX <= maxX, minY <= maxY else { return 0 }
+  var best = 0
+  for y in minY...maxY {
+    for x in minX...maxX {
+      let offset = (y * width + x) * 4
+      let red = Int(pixels[offset])
+      let green = Int(pixels[offset + 1])
+      let blue = Int(pixels[offset + 2])
+      best = max(best, max(red, green, blue) - min(red, green, blue))
+    }
+  }
+  return best
+}
+
 private func writePNG(_ image: CGImage, named name: String, to directory: URL) throws {
   try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
   let representation = NSBitmapImageRep(cgImage: image)
@@ -237,4 +258,52 @@ private func writePNG(_ image: CGImage, named name: String, to directory: URL) t
     frameSize: CGSize(width: 1280, height: 720),
     visorSize: CGSize(width: 400, height: 200))
   #expect(projected == CGPoint(x: 400, y: 212.5))
+}
+
+@MainActor
+@Test func setupViewDrawsTheIrisRingAsItsRimEllipse() throws {
+  let face = SyntheticSetup.face()
+  let frameSize = CGSize(width: 1280, height: 720)
+  let band = try #require(face.eyeBand)
+
+  let visorWidth = CGFloat(renderWidth) * CalibrationSetupView.visorWidthRatio
+  let visorHeight = visorWidth / CalibrationSetupView.visorAspectRatio
+  let visorSize = CGSize(width: visorWidth, height: visorHeight)
+  let visorCenterY = CGFloat(renderHeight) * CalibrationSetupView.visorCenterYRatio
+
+  let renderer = ImageRenderer(
+    content: CalibrationSetupView(face: face, image: nil, guidance: .ready, frameSize: frameSize))
+  renderer.scale = 1
+  renderer.proposedSize = ProposedViewSize(
+    width: CGFloat(renderWidth), height: CGFloat(renderHeight))
+  let rendered = try #require(renderer.cgImage)
+  let pixels = rgbaPixels(rendered)
+
+  func screen(_ local: CGPoint) -> (x: Int, y: Int) {
+    (
+      x: Int((CGFloat(renderWidth) / 2 + visorSize.width / 2 - local.x).rounded()),
+      y: Int((visorCenterY + (local.y - visorSize.height / 2)).rounded())
+    )
+  }
+
+  // The synthetic iris is a normalized circle, so the band's uniform pixel
+  // scale makes its projected rim wider than tall. `on` is the horizontal
+  // extreme, which lies on the fitted ellipse; `above` is the same distance
+  // from the centre on the vertical axis, outside it.
+  let center = CalibrationSetupView.project(
+    face.imageLeftIris[0], band: band, frameSize: frameSize, visorSize: visorSize)
+  let horizontal = CalibrationSetupView.project(
+    face.imageLeftIris[1], band: band, frameSize: frameSize, visorSize: visorSize)
+  let radius = hypot(horizontal.x - center.x, horizontal.y - center.y)
+  let on = screen(horizontal)
+  let above = screen(CGPoint(x: center.x, y: center.y - radius))
+
+  #expect(
+    maxChroma(
+      pixels, width: renderWidth, height: renderHeight, centerX: on.x, centerY: on.y, radius: 3)
+      > 40)
+  #expect(
+    maxChroma(
+      pixels, width: renderWidth, height: renderHeight, centerX: above.x, centerY: above.y,
+      radius: 3) <= 40)
 }
