@@ -27,7 +27,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     let bounds = CGDisplayBounds(displayID)
     let pointsPerCentimeter = SettingsWindowController.pointsPerCentimeter(
       bounds: bounds, physicalMillimetres: CGDisplayScreenSize(displayID))
-    let coordinator = CalibrationCoordinator(bounds: bounds)
+    let coordinator = CalibrationCoordinator(
+      bounds: bounds,
+      interpupillaryCentimetres: model.settings.interpupillaryCentimetres)
     let controller = CalibrationWindowController(coordinator: coordinator)
     calibrationWindowController = controller
     controller.present { [weak self] result in

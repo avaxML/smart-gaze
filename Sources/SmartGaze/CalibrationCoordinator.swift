@@ -45,16 +45,12 @@ final class CalibrationCoordinator {
   private var latestDistanceCentimeters: Double?
   private var latestFaceOrigin: SIMD3<Double>?
   private var latestHeadPose: (yaw: Double, pitch: Double)?
+  private var latestImpliedInterpupillary: Double?
 
   init(
     bounds: CGRect,
-    makePipeline: @escaping () throws -> GazePipeline = {
-      try GazePipeline(
-        faceMeshModelURL: ModelLocator.faceMeshModelURL(),
-        blazeGazeModelURL: ModelLocator.blazeGazeModelURL(),
-        irisModelURL: ModelLocator.irisModelURLIfPresent(),
-        verticalFieldOfViewDegrees: CameraGeometry.builtInVerticalFieldOfViewDegrees)
-    },
+    interpupillaryCentimetres: Double? = nil,
+    makePipeline: (() throws -> GazePipeline)? = nil,
     camera: CameraController = CameraController(),
     settleDuration: Duration = .milliseconds(700),
     burstDuration: Duration = .milliseconds(500),
@@ -65,7 +61,15 @@ final class CalibrationCoordinator {
     maxErrorPoints: Double = 120
   ) {
     self.bounds = bounds
-    self.makePipeline = makePipeline
+    self.makePipeline =
+      makePipeline ?? {
+        try GazePipeline(
+          faceMeshModelURL: ModelLocator.faceMeshModelURL(),
+          blazeGazeModelURL: ModelLocator.blazeGazeModelURL(),
+          irisModelURL: ModelLocator.irisModelURLIfPresent(),
+          verticalFieldOfViewDegrees: CameraGeometry.builtInVerticalFieldOfViewDegrees,
+          interpupillaryCentimetres: interpupillaryCentimetres ?? defaultInterpupillaryCentimetres)
+      }
     self.camera = camera
     self.settleDuration = settleDuration
     self.burstDuration = burstDuration
@@ -142,6 +146,9 @@ final class CalibrationCoordinator {
           "origin cm=(\(latestFaceOrigin.x),\(latestFaceOrigin.y),\(latestFaceOrigin.z)) "
             + "yaw=\(latestHeadPose?.yaw ?? .nan) pitch=\(latestHeadPose?.pitch ?? .nan)")
       }
+      if let latestImpliedInterpupillary {
+        currentRun.recordImpliedInterpupillary(latestImpliedInterpupillary)
+      }
       let outcome = currentRun.submitBurst(samples)
       if !samples.isEmpty {
         let cx = samples.map(\.x).reduce(0, +) / Double(samples.count)
@@ -164,6 +171,9 @@ final class CalibrationCoordinator {
           .calibration,
           "completed hErr=\(result.horizontalErrorPoints) vErr=\(result.verticalErrorPoints) dispersion=\(result.observedDispersionPoints) bursts=\(result.acceptedBurstCount) x=\(result.map.xCoefficients) y=\(result.map.yCoefficients)"
         )
+        LaunchDiagnostics.record(
+          .calibration,
+          "interpupillary cm=\(result.interpupillaryCentimetres.map { String($0) } ?? "nil")")
         progress.completed = progress.total
         finish(with: result)
         return
@@ -202,6 +212,14 @@ final class CalibrationCoordinator {
         self.latestDistanceCentimeters = estimate.faceDistanceCentimeters
         self.latestFaceOrigin = estimate.faceOriginCentimeters
         self.latestHeadPose = (estimate.headYawRadians, estimate.headPitchRadians)
+        if let iris = estimate.iris,
+          let implied = InterpupillaryFit.impliedCentimetres(
+            irisDepthCentimetres: iris.depthCentimetres,
+            baselineDepthCentimetres: estimate.faceDistanceCentimeters,
+            assumedCentimetres: estimate.assumedInterpupillaryCentimetres)
+        {
+          self.latestImpliedInterpupillary = implied
+        }
       } catch {
         self.gazeErrorCount += 1
         if self.gazeErrorCount <= 5 {

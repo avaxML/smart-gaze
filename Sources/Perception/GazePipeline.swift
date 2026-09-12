@@ -29,12 +29,16 @@ public struct GazeEstimate: Equatable, Sendable {
   /// The iris-landmark reading for this frame: `nil` when the iris model is not
   /// configured or either eye crop was unavailable.
   public let iris: IrisEstimate?
+  /// The interpupillary distance the eye-baseline depth was scaled by, so a
+  /// consumer can compute the user's implied value with `InterpupillaryFit`.
+  public let assumedInterpupillaryCentimetres: Double
 
   public init(
     gaze: NormalizedGazePoint, faceDistanceCentimeters: Double, headYawRadians: Double = 0,
     headPitchRadians: Double = 0, faceOriginCentimeters: SIMD3<Double> = .zero,
     cropRotationRadians: Double = 0, usedTrackedCrop: Bool = false,
-    iris: IrisEstimate? = nil
+    iris: IrisEstimate? = nil,
+    assumedInterpupillaryCentimetres: Double = defaultInterpupillaryCentimetres
   ) {
     self.gaze = gaze
     self.faceDistanceCentimeters = faceDistanceCentimeters
@@ -44,6 +48,7 @@ public struct GazeEstimate: Equatable, Sendable {
     self.cropRotationRadians = cropRotationRadians
     self.usedTrackedCrop = usedTrackedCrop
     self.iris = iris
+    self.assumedInterpupillaryCentimetres = assumedInterpupillaryCentimetres
   }
 }
 
@@ -104,6 +109,7 @@ public actor GazePipeline {
   private let irisEstimator: IrisLandmarkEstimator?
   private var verticalFocalLengthPixels: Double?
   private var verticalFieldOfViewOverrideDegrees: Double?
+  private let interpupillaryCentimetres: Double
   private var trackedLandmarks: [SIMD3<Double>]?
   private var trackedFrameSize: CGSize?
 
@@ -113,7 +119,8 @@ public actor GazePipeline {
     irisModelURL: URL? = nil,
     computeUnits: MLComputeUnits = .all,
     verticalFocalLengthPixels: Double? = nil,
-    verticalFieldOfViewDegrees: Double? = nil
+    verticalFieldOfViewDegrees: Double? = nil,
+    interpupillaryCentimetres: Double = defaultInterpupillaryCentimetres
   ) throws {
     self.faceMesh = try FaceMeshEstimator(modelURL: faceMeshModelURL, computeUnits: computeUnits)
     self.blazeGaze = try BlazeGazeEstimator(modelURL: blazeGazeModelURL, computeUnits: computeUnits)
@@ -123,6 +130,7 @@ public actor GazePipeline {
     } else {
       self.irisEstimator = nil
     }
+    self.interpupillaryCentimetres = interpupillaryCentimetres
     // SMART_GAZE_VERTICAL_FOV_DEGREES lets the depth scale be corrected for a
     // camera whose field of view macOS will not report. The first live run
     // recorded 27.8 cm at the 60 degree default against a real distance near
@@ -224,7 +232,8 @@ public actor GazePipeline {
     let headPose = try headPoseInputs(
       landmarks: fullFrame.pixelSpace,
       imageSize: SIMD2(Double(frameSize.width), Double(frameSize.height)),
-      verticalFocalLengthPixels: effectiveVerticalFocalLengthPixels(frameHeight: frameSize.height))
+      verticalFocalLengthPixels: effectiveVerticalFocalLengthPixels(frameHeight: frameSize.height),
+      interpupillaryCentimetres: interpupillaryCentimetres)
 
     let blazeInput = try BlazeGazeInput(
       eyeBandRGB: eyeBand,
@@ -238,7 +247,7 @@ public actor GazePipeline {
       headPitchRadians: headPitchRadians(from: headPose.headVector),
       faceOriginCentimeters: headPose.faceOrigin.centimetres,
       cropRotationRadians: crop.rotationRadians, usedTrackedCrop: usedTrackedCrop,
-      iris: iris)
+      iris: iris, assumedInterpupillaryCentimetres: interpupillaryCentimetres)
   }
 
   /// Runs the iris model on both eye crops. The image-right eye's landmarks

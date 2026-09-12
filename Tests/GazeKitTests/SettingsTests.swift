@@ -245,3 +245,27 @@ private func loadSettings(withStoredCalibration calibration: [String: Any]) thro
   #expect(loaded.calibrationMap == nil)
   #expect(loaded.dwellSeconds == 1.25)
 }
+
+@Test func interpupillaryDistanceRoundTripsThroughJSON() throws {
+  var settings = Settings.default
+  settings.interpupillaryCentimetres = 6.1
+
+  let data = try JSONEncoder().encode(settings)
+  let decoded = try JSONDecoder().decode(Settings.self, from: data)
+
+  #expect(decoded.interpupillaryCentimetres == 6.1)
+}
+
+@Test func settingsBlobWithoutTheInterpupillaryKeyDecodesToNil() throws {
+  var seeded = Settings.default
+  seeded.interpupillaryCentimetres = 6.3
+  let data = try JSONEncoder().encode(seeded)
+  var object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+  #expect(object["interpupillaryCentimetres"] != nil)
+  object.removeValue(forKey: "interpupillaryCentimetres")
+  let stripped = try JSONSerialization.data(withJSONObject: object)
+
+  let decoded = try JSONDecoder().decode(Settings.self, from: stripped)
+
+  #expect(decoded.interpupillaryCentimetres == nil)
+}

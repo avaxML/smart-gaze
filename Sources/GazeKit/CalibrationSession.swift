@@ -96,6 +96,10 @@ public struct CalibrationResult: Equatable, Sendable {
   /// Mean face origin over the accepted fit bursts, camera frame in cm. The
   /// pose the map is valid at; `HeadTranslationCorrection` measures from it.
   public let faceOriginCentimeters: SIMD3<Double>?
+  /// The per-user interpupillary distance fitted from the accepted bursts'
+  /// iris-ruler and eye-baseline depths. `nil` when too few values were
+  /// recorded or their median was implausible.
+  public let interpupillaryCentimetres: Double?
   /// The display the targets were shown on. The map is only meaningful there,
   /// so tracking must be bounded by it rather than by every attached display.
   public let bounds: CGRect
@@ -105,10 +109,12 @@ public struct CalibrationResult: Equatable, Sendable {
     distanceCentimeters: Double, observedHorizontalSpanPoints: Double = 0,
     observedVerticalSpanPoints: Double = 0, observedDispersionPoints: Double = 0,
     acceptedBurstCount: Int = 0, bounds: CGRect = .null,
-    faceOriginCentimeters: SIMD3<Double>? = nil
+    faceOriginCentimeters: SIMD3<Double>? = nil,
+    interpupillaryCentimetres: Double? = nil
   ) {
     self.bounds = bounds
     self.faceOriginCentimeters = faceOriginCentimeters
+    self.interpupillaryCentimetres = interpupillaryCentimetres
     self.map = map
     self.horizontalErrorPoints = horizontalErrorPoints
     self.verticalErrorPoints = verticalErrorPoints
@@ -166,6 +172,12 @@ public struct CalibrationRun: Sendable {
   private var acceptedSpans: [(horizontal: Double, vertical: Double)] = []
   private var latestFaceOrigin: SIMD3<Double>?
   private var fitOrigins: [SIMD3<Double>] = []
+  /// The implied interpupillary distance recorded since the last accepted
+  /// burst, consumed when that burst is accepted so a dispersed retry cannot
+  /// count the same reading twice.
+  private var pendingImpliedInterpupillary: Double?
+  /// The implied distance each accepted fit or validation burst carried.
+  private var acceptedImpliedInterpupillary: [Double] = []
 
   public init(
     plan: CalibrationTargetPlan,
@@ -216,9 +228,21 @@ public struct CalibrationRun: Sendable {
     latestFaceOrigin = centimeters
   }
 
+  /// Records the latest implied interpupillary distance. It is consumed by the
+  /// next accepted burst, so a dispersed retry cannot count it twice.
+  public mutating func recordImpliedInterpupillary(_ centimetres: Double) {
+    pendingImpliedInterpupillary = centimetres
+  }
+
   /// Face origins captured with each accepted fit burst, in order. Exposed so
   /// a run can be checked for posture drift across the target sequence.
   public var acceptedFitOrigins: [SIMD3<Double>] { fitOrigins }
+
+  private mutating func keepPendingImpliedInterpupillary() {
+    guard let pendingImpliedInterpupillary else { return }
+    acceptedImpliedInterpupillary.append(pendingImpliedInterpupillary)
+    self.pendingImpliedInterpupillary = nil
+  }
 
   private mutating func submitFitBurst(
     _ samples: [NormalizedGazePoint], at index: Int
@@ -230,6 +254,7 @@ public struct CalibrationRun: Sendable {
     case .accepted(let centroid, let horizontalSpan, let verticalSpan):
       acceptedSpans.append((horizontal: horizontalSpan, vertical: verticalSpan))
       if let latestFaceOrigin { fitOrigins.append(latestFaceOrigin) }
+      keepPendingImpliedInterpupillary()
       let screenPoint = CalibrationTargetPlan.screenPoint(for: plan.fitTargets[index], in: bounds)
       fitSamples.append(CalibrationSample(gaze: centroid, screenPoint: screenPoint))
 
@@ -270,6 +295,7 @@ public struct CalibrationRun: Sendable {
     case .dispersed(let dispersion):
       return .retryTarget(dispersion: dispersion)
     case .accepted(let centroid, _, _):
+      keepPendingImpliedInterpupillary()
       let actual = CalibrationTargetPlan.screenPoint(for: plan.validationTargets[index], in: bounds)
       let predicted = map.project(centroid)
       validationErrors.append(
@@ -300,7 +326,9 @@ public struct CalibrationRun: Sendable {
       acceptedBurstCount: acceptedSpans.count,
       bounds: bounds,
       faceOriginCentimeters: fitOrigins.isEmpty
-        ? nil : fitOrigins.reduce(SIMD3<Double>.zero, +) / Double(fitOrigins.count))
+        ? nil : fitOrigins.reduce(SIMD3<Double>.zero, +) / Double(fitOrigins.count),
+      interpupillaryCentimetres: InterpupillaryFit.fit(
+        impliedCentimetres: acceptedImpliedInterpupillary))
     stage = .finished(result)
     return .completed(result)
   }

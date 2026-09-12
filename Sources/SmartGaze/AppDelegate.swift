@@ -99,6 +99,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // switches it off, so they run detached and the wiring resumes here.
     pipelineGeneration += 1
     let generation = pipelineGeneration
+    let interpupillaryCentimetres =
+      settingsModel.settings.interpupillaryCentimetres ?? defaultInterpupillaryCentimetres
     Task { [weak self] in
       let loaded = await Task.detached(priority: .userInitiated) {
         () -> Result<GazePipeline, Error> in
@@ -107,7 +109,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             faceMeshModelURL: ModelLocator.faceMeshModelURL(),
             blazeGazeModelURL: ModelLocator.blazeGazeModelURL(),
             irisModelURL: ModelLocator.irisModelURLIfPresent(),
-            verticalFieldOfViewDegrees: CameraGeometry.builtInVerticalFieldOfViewDegrees)
+            verticalFieldOfViewDegrees: CameraGeometry.builtInVerticalFieldOfViewDegrees,
+            interpupillaryCentimetres: interpupillaryCentimetres)
         }
       }.value
       guard let self, self.pipelineGeneration == generation else { return }

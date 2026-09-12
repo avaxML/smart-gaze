@@ -104,6 +104,7 @@ struct VideoGazeHarness {
     var rightIrisDiameters: [Double] = []
     var irisDepths: [Double] = []
     var baselineDepthsOnIrisFrames: [Double] = []
+    var impliedInterpupillaryCentimetres: [Double] = []
 
     while frames < maxFrames, let sample = output.copyNextSampleBuffer() {
       guard let borrowed = CMSampleBufferGetImageBuffer(sample),
@@ -126,6 +127,13 @@ struct VideoGazeHarness {
           rightIrisDiameters.append(iris.imageRightEye.irisDiameterPixels)
           irisDepths.append(iris.depthCentimetres)
           baselineDepthsOnIrisFrames.append(estimate.faceDistanceCentimeters)
+          if let implied = InterpupillaryFit.impliedCentimetres(
+            irisDepthCentimetres: iris.depthCentimetres,
+            baselineDepthCentimetres: estimate.faceDistanceCentimeters,
+            assumedCentimetres: estimate.assumedInterpupillaryCentimetres)
+          {
+            impliedInterpupillaryCentimetres.append(implied)
+          }
         }
         produced += 1
       } catch let error as GazePipelineError {
@@ -183,6 +191,13 @@ struct VideoGazeHarness {
     )
     print(
       "median iris depth cm \(String(format: "%.1f", percentile(irisDepths, 0.5)))  median eye-baseline depth cm \(String(format: "%.1f", percentile(baselineDepthsOnIrisFrames, 0.5)))  (\(irisDepths.count) frames)"
+    )
+    let fittedInterpupillary = InterpupillaryFit.fit(
+      impliedCentimetres: impliedInterpupillaryCentimetres)
+    let fittedInterpupillaryText =
+      fittedInterpupillary.map { String(format: "%.2f", $0) } ?? "nil"
+    print(
+      "implied IPD cm  median \(String(format: "%.2f", percentile(impliedInterpupillaryCentimetres, 0.5)))  p05 \(String(format: "%.2f", percentile(impliedInterpupillaryCentimetres, 0.05)))  p95 \(String(format: "%.2f", percentile(impliedInterpupillaryCentimetres, 0.95)))  fit \(fittedInterpupillaryText)  (\(impliedInterpupillaryCentimetres.count) frames)"
     )
 
     // Run the real filter and the real dispersion metric the trigger uses, so the
