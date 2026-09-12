@@ -13,23 +13,25 @@ struct SettingsView: View {
   var body: some View {
     VStack(spacing: 0) {
       if let error = model.persistenceError {
-        GroupBox {
-          Label(error, systemImage: "exclamationmark.triangle.fill")
-            .foregroundStyle(.orange)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 12)
+        Label(error, systemImage: "exclamationmark.triangle.fill")
+          .font(.callout)
+          .foregroundStyle(.orange)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .padding(.horizontal, 12)
+          .padding(.vertical, 10)
+          .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+          .padding(.horizontal, 16)
+          .padding(.top, 12)
       }
       TabView(selection: $selectedTab) {
         GeneralSettingsView(model: model)
-          .tabItem { Label("General", systemImage: "gear") }
+          .tabItem { Label("General", systemImage: "gearshape") }
           .tag(Tab.general)
         CalibrationPreviewView(model: preview)
           .tabItem { Label("Calibration & Preview", systemImage: "eye") }
           .tag(Tab.preview)
         ProviderSettingsView(model: model)
-          .tabItem { Label("Provider", systemImage: "brain") }
+          .tabItem { Label("Provider", systemImage: "sparkles") }
           .tag(Tab.provider)
         PrivacySettingsView(model: model)
           .tabItem { Label("Privacy", systemImage: "hand.raised") }
