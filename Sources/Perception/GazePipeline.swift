@@ -18,16 +18,18 @@ public struct GazeEstimate: Equatable, Sendable {
   public let gaze: NormalizedGazePoint
   public let faceDistanceCentimeters: Double
   public let headYawRadians: Double
+  public let headPitchRadians: Double
   /// Camera frame, centimetres: x image-right, y image-down, z away.
   public let faceOriginCentimeters: SIMD3<Double>
 
   public init(
     gaze: NormalizedGazePoint, faceDistanceCentimeters: Double, headYawRadians: Double = 0,
-    faceOriginCentimeters: SIMD3<Double> = .zero
+    headPitchRadians: Double = 0, faceOriginCentimeters: SIMD3<Double> = .zero
   ) {
     self.gaze = gaze
     self.faceDistanceCentimeters = faceDistanceCentimeters
     self.headYawRadians = headYawRadians
+    self.headPitchRadians = headPitchRadians
     self.faceOriginCentimeters = faceOriginCentimeters
   }
 }
@@ -138,6 +140,7 @@ public actor GazePipeline {
     return GazeEstimate(
       gaze: gaze, faceDistanceCentimeters: headPose.faceOrigin.centimetres.z,
       headYawRadians: headYawRadians(from: headPose.headVector),
+      headPitchRadians: headPitchRadians(from: headPose.headVector),
       faceOriginCentimeters: headPose.faceOrigin.centimetres)
   }
 

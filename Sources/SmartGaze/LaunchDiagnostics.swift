@@ -19,6 +19,17 @@ enum LaunchDiagnostics {
     /// Whether the active provider's key was readable from the Keychain at
     /// launch. Never the key itself, only "present" or "absent".
     case providerKey = "provider-key"
+    /// Whether the modifier tap could be installed, and each modifier edge it
+    /// sees. The only way to tell "no Accessibility" from "no gaze" from
+    /// "no capture" without a debugger.
+    case modifier = "modifier"
+    /// Raw and filtered screen points, only while `SMART_GAZE_TRACE_GAZE` is
+    /// set, and only for the first few hundred samples. The evidence a filter
+    /// change has to be tuned against.
+    case gaze = "gaze"
+    /// Every capture the trigger fires and how it ended, so a live session
+    /// can be checked from the log alone.
+    case capture = "capture"
   }
 
   private static let path = ProcessInfo.processInfo.environment["SMART_GAZE_LAUNCH_LOG"]

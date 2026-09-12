@@ -187,7 +187,7 @@ private func cluster(
   #expect(preview.lastTimestamp == 1.0)
 }
 
-@Test func outOfBoundsSampleClearsTrackingAndPreventsStaleCapture() {
+@Test func outOfBoundsSampleKeepsTheModifierArmedOnTheNearestEdgePoint() {
   var preview = TrackingPreview(
     mode: .modifierHeld, bounds: CGRect(x: 0, y: 0, width: 100, height: 100))
 
@@ -195,13 +195,32 @@ private func cluster(
   _ = preview.handle(.sample(CGPoint(x: 5, y: 5), 0.1))
   #expect(preview.state == .armed(region: CGPoint(x: 5, y: 5), since: 0.0))
 
-  #expect(preview.handle(.sample(CGPoint(x: 500, y: 500), 0.2)) == [.hideReticle])
-  #expect(preview.isTracking == false)
-  #expect(preview.lastGazePoint == nil)
-  #expect(preview.state == .idle)
+  #expect(
+    preview.handle(.sample(CGPoint(x: 500, y: 40), 0.2))
+      == [.showReticle(at: CGPoint(x: 100, y: 40))])
+  #expect(preview.isTracking)
+  #expect(preview.rejectedSampleCount == 1)
+  #expect(preview.lastGazePoint == CGPoint(x: 100, y: 40))
+  #expect(preview.state == .armed(region: CGPoint(x: 100, y: 40), since: 0.0))
 
-  #expect(preview.handle(.modifierUp(0.3)) == [])
+  #expect(
+    preview.handle(.modifierUp(0.3)) == [.capture(at: CGPoint(x: 100, y: 40)), .hideReticle])
+  #expect(preview.localTriggerCount == 1)
+}
+
+@Test func aGazeParkedOffScreenNeverDwells() {
+  var preview = TrackingPreview(
+    mode: .passiveDwell, bounds: CGRect(x: 0, y: 0, width: 100, height: 100),
+    dwellWindow: 0.5, dispersionThreshold: 50)
+  var time = 0.0
+  var effects: [TriggerEffect] = []
+  while time < 3.0 {
+    effects += preview.handle(.sample(CGPoint(x: 50, y: 400), time))
+    time += 0.05
+  }
+  #expect(effects == [])
   #expect(preview.localTriggerCount == 0)
+  #expect(preview.currentFixation == nil)
 }
 
 @Test func trackingLossClearsLastGazeSoDoubleBlinkCannotFireStale() {
