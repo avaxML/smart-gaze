@@ -355,6 +355,7 @@ final class SettingsModel: ObservableObject {
     } else {
       settings.headTranslationCorrection = nil
     }
+    settings.headRotationCorrection = result.headRotationCorrection
     if let interpupillaryCentimetres = result.interpupillaryCentimetres {
       settings.interpupillaryCentimetres = interpupillaryCentimetres
     }

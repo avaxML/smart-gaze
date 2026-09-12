@@ -8,6 +8,10 @@ import Foundation
 public struct CalibrationTargetPlan: Equatable, Sendable {
   public let fitTargets: [NormalizedGazePoint]
   public let validationTargets: [NormalizedGazePoint]
+  /// The centre target held during the head sweep. Kept after the fit grid
+  /// because the map is valid at the centre, so a rotation fitted there
+  /// measures the residual without an offset from a corner.
+  public let sweepTarget = NormalizedGazePoint(x: 0.5, y: 0.5)
 
   public init(inset: Double = 0.12) {
     let low = inset
@@ -96,6 +100,9 @@ public struct CalibrationResult: Equatable, Sendable {
   /// Mean face origin over the accepted fit bursts, camera frame in cm. The
   /// pose the map is valid at; `HeadTranslationCorrection` measures from it.
   public let faceOriginCentimeters: SIMD3<Double>?
+  /// The fitted rotation correction from the calibration head sweep, or nil
+  /// when the sweep produced too few samples or too little pose range.
+  public let headRotationCorrection: HeadRotationCorrection?
   /// The per-user interpupillary distance fitted from the accepted bursts'
   /// iris-ruler and eye-baseline depths. `nil` when too few values were
   /// recorded or their median was implausible.
@@ -110,10 +117,12 @@ public struct CalibrationResult: Equatable, Sendable {
     observedVerticalSpanPoints: Double = 0, observedDispersionPoints: Double = 0,
     acceptedBurstCount: Int = 0, bounds: CGRect = .null,
     faceOriginCentimeters: SIMD3<Double>? = nil,
+    headRotationCorrection: HeadRotationCorrection? = nil,
     interpupillaryCentimetres: Double? = nil
   ) {
     self.bounds = bounds
     self.faceOriginCentimeters = faceOriginCentimeters
+    self.headRotationCorrection = headRotationCorrection
     self.interpupillaryCentimetres = interpupillaryCentimetres
     self.map = map
     self.horizontalErrorPoints = horizontalErrorPoints
@@ -128,6 +137,7 @@ public struct CalibrationResult: Equatable, Sendable {
 
 public enum CalibrationStage: Equatable, Sendable {
   case fitting(targetIndex: Int)
+  case sweeping
   case validating(targetIndex: Int)
   case finished(CalibrationResult)
   case aborted
@@ -172,6 +182,14 @@ public struct CalibrationRun: Sendable {
   private var acceptedSpans: [(horizontal: Double, vertical: Double)] = []
   private var latestFaceOrigin: SIMD3<Double>?
   private var fitOrigins: [SIMD3<Double>] = []
+  /// The head pose recorded since the last accepted burst, consumed when that
+  /// burst is accepted so the sweep's reference is the mean over the fit
+  /// bursts the user actually held, not over retries.
+  private var latestHeadPose: (yaw: Double, pitch: Double)?
+  private var fitHeadPoses: [(yaw: Double, pitch: Double)] = []
+  /// The rotation correction fitted from the calibration sweep, stored until
+  /// validation finishes and the result is built.
+  private var headRotationCorrection: HeadRotationCorrection?
   /// The implied interpupillary distance recorded since the last accepted
   /// burst, consumed when that burst is accepted so a dispersed retry cannot
   /// count the same reading twice.
@@ -197,6 +215,8 @@ public struct CalibrationRun: Sendable {
     case .fitting(let index):
       guard plan.fitTargets.indices.contains(index) else { return nil }
       return CalibrationTargetPlan.screenPoint(for: plan.fitTargets[index], in: bounds)
+    case .sweeping:
+      return CalibrationTargetPlan.screenPoint(for: plan.sweepTarget, in: bounds)
     case .validating(let index):
       guard plan.validationTargets.indices.contains(index) else { return nil }
       return CalibrationTargetPlan.screenPoint(for: plan.validationTargets[index], in: bounds)
@@ -209,6 +229,8 @@ public struct CalibrationRun: Sendable {
     switch stage {
     case .fitting(let index):
       return submitFitBurst(samples, at: index)
+    case .sweeping:
+      return .solveFailed(.degenerate)
     case .validating(let index):
       return submitValidationBurst(samples, at: index)
     case .finished, .aborted, .failed:
@@ -228,6 +250,12 @@ public struct CalibrationRun: Sendable {
     latestFaceOrigin = centimeters
   }
 
+  /// Records the head pose for the burst being collected. Accepted fit bursts
+  /// keep it as the sweep's reference; validation reads it as the burst mean.
+  public mutating func recordHeadPose(yawRadians: Double, pitchRadians: Double) {
+    latestHeadPose = (yawRadians, pitchRadians)
+  }
+
   /// Records the latest implied interpupillary distance. It is consumed by the
   /// next accepted burst, so a dispersed retry cannot count it twice.
   public mutating func recordImpliedInterpupillary(_ centimetres: Double) {
@@ -237,6 +265,37 @@ public struct CalibrationRun: Sendable {
   /// Face origins captured with each accepted fit burst, in order. Exposed so
   /// a run can be checked for posture drift across the target sequence.
   public var acceptedFitOrigins: [SIMD3<Double>] { fitOrigins }
+
+  /// The map solved from the accepted fit bursts, available while the run is
+  /// sweeping and validating. The sweep pairs each frame's projection through
+  /// it with the head pose on that frame.
+  public var solvedMap: CalibrationMap? { map }
+
+  /// The rotation correction fitted by the sweep, or nil when the sweep had
+  /// too few samples or too little pose range.
+  public var solvedHeadRotationCorrection: HeadRotationCorrection? { headRotationCorrection }
+
+  /// Fits the rotation correction from the sweep samples and advances to
+  /// validation. The reference is the mean pose recorded with the accepted fit
+  /// bursts. A nil fit stores no correction and is not an error.
+  public mutating func submitSweep(
+    _ samples: [HeadRotationFit.Sample]
+  ) -> CalibrationSubmitOutcome {
+    guard case .sweeping = stage else { return .solveFailed(.degenerate) }
+    let reference =
+      fitHeadPoses.isEmpty
+      ? (yaw: 0.0, pitch: 0.0)
+      : (
+        yaw: fitHeadPoses.map(\.yaw).reduce(0, +) / Double(fitHeadPoses.count),
+        pitch: fitHeadPoses.map(\.pitch).reduce(0, +) / Double(fitHeadPoses.count)
+      )
+    let target = CalibrationTargetPlan.screenPoint(for: plan.sweepTarget, in: bounds)
+    headRotationCorrection = HeadRotationFit.fit(
+      samples: samples, target: target, referenceYawRadians: reference.yaw,
+      referencePitchRadians: reference.pitch)
+    stage = .validating(targetIndex: 0)
+    return .advancedToNextValidationTarget
+  }
 
   private mutating func keepPendingImpliedInterpupillary() {
     guard let pendingImpliedInterpupillary else { return }
@@ -254,6 +313,7 @@ public struct CalibrationRun: Sendable {
     case .accepted(let centroid, let horizontalSpan, let verticalSpan):
       acceptedSpans.append((horizontal: horizontalSpan, vertical: verticalSpan))
       if let latestFaceOrigin { fitOrigins.append(latestFaceOrigin) }
+      if let latestHeadPose { fitHeadPoses.append(latestHeadPose) }
       keepPendingImpliedInterpupillary()
       let screenPoint = CalibrationTargetPlan.screenPoint(for: plan.fitTargets[index], in: bounds)
       fitSamples.append(CalibrationSample(gaze: centroid, screenPoint: screenPoint))
@@ -274,7 +334,7 @@ public struct CalibrationRun: Sendable {
     do {
       let solved = try solveCalibration(fitSamples)
       map = solved
-      stage = .validating(targetIndex: 0)
+      stage = .sweeping
       return .advancedToNextFitTarget
     } catch let error as CalibrationError {
       stage = .failed(error)
@@ -297,7 +357,11 @@ public struct CalibrationRun: Sendable {
     case .accepted(let centroid, _, _):
       keepPendingImpliedInterpupillary()
       let actual = CalibrationTargetPlan.screenPoint(for: plan.validationTargets[index], in: bounds)
-      let predicted = map.project(centroid)
+      var predicted = map.project(centroid)
+      if let headRotationCorrection, let latestHeadPose {
+        predicted = headRotationCorrection.correct(
+          predicted, yawRadians: latestHeadPose.yaw, pitchRadians: latestHeadPose.pitch)
+      }
       validationErrors.append(
         (horizontal: abs(predicted.x - actual.x), vertical: abs(predicted.y - actual.y)))
 
@@ -327,6 +391,7 @@ public struct CalibrationRun: Sendable {
       bounds: bounds,
       faceOriginCentimeters: fitOrigins.isEmpty
         ? nil : fitOrigins.reduce(SIMD3<Double>.zero, +) / Double(fitOrigins.count),
+      headRotationCorrection: headRotationCorrection,
       interpupillaryCentimetres: InterpupillaryFit.fit(
         impliedCentimetres: acceptedImpliedInterpupillary))
     stage = .finished(result)

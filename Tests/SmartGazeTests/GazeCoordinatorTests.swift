@@ -465,7 +465,7 @@ private final class Counter: @unchecked Sendable {
 
   let point = CGPoint(x: 700, y: 400)
   var time = 0.0
-  await coordinator.handleHeadYaw(0.6)
+  await coordinator.handleHeadYaw(0.7)
   while time < 2.0 {
     await coordinator.handleGazeSample(point, at: time)
     time += 0.05

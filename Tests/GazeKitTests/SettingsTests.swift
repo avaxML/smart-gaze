@@ -6,7 +6,7 @@ import Testing
 // caller would, by decoding it, matching its own Codable contract.
 private func fullyPopulatedSettings() throws -> Settings {
   let json = """
-    {"inputSpace":"normalized-screen-point-affine-v3","xCoefficients":[1,2,3],
+    {"inputSpace":"normalized-screen-point-affine-v4","xCoefficients":[1,2,3],
     "yCoefficients":[3,2,1]}
     """
   var settings = Settings.default
@@ -214,7 +214,7 @@ private func loadSettings(withStoredCalibration calibration: [String: Any]) thro
 
 @Test func badCoefficientCountIsDroppedWhileOtherSettingsSurviveLoad() throws {
   let loaded = try loadSettings(withStoredCalibration: [
-    "inputSpace": "normalized-screen-point-affine-v3",
+    "inputSpace": "normalized-screen-point-affine-v4",
     "xCoefficients": [1, 2, 3, 4, 5],
     "yCoefficients": [3, 2, 1],
   ])
@@ -238,7 +238,7 @@ private func loadSettings(withStoredCalibration calibration: [String: Any]) thro
 
 @Test func aMapFromThePreviousPipelineIsDroppedSoTheAppAsksToRecalibrate() throws {
   let loaded = try loadSettings(withStoredCalibration: [
-    "inputSpace": "normalized-screen-point-affine-v2",
+    "inputSpace": "normalized-screen-point-affine-v3",
     "xCoefficients": [1, 2, 3],
     "yCoefficients": [3, 2, 1],
   ])
@@ -268,4 +268,32 @@ private func loadSettings(withStoredCalibration calibration: [String: Any]) thro
   let decoded = try JSONDecoder().decode(Settings.self, from: stripped)
 
   #expect(decoded.interpupillaryCentimetres == nil)
+}
+
+@Test func headRotationCorrectionRoundTripsThroughJSON() throws {
+  var settings = Settings.default
+  settings.headRotationCorrection = HeadRotationCorrection(
+    referenceYawRadians: 0.02, referencePitchRadians: -0.01,
+    yawGainPointsPerRadian: 1500, pitchGainPointsPerRadian: -800)
+
+  let data = try JSONEncoder().encode(settings)
+  let decoded = try JSONDecoder().decode(Settings.self, from: data)
+
+  #expect(decoded.headRotationCorrection == settings.headRotationCorrection)
+}
+
+@Test func settingsBlobWithoutTheHeadRotationKeyDecodesToNil() throws {
+  var seeded = Settings.default
+  seeded.headRotationCorrection = HeadRotationCorrection(
+    referenceYawRadians: 0.02, referencePitchRadians: -0.01,
+    yawGainPointsPerRadian: 1500, pitchGainPointsPerRadian: -800)
+  let data = try JSONEncoder().encode(seeded)
+  var object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+  #expect(object["headRotationCorrection"] != nil)
+  object.removeValue(forKey: "headRotationCorrection")
+  let stripped = try JSONSerialization.data(withJSONObject: object)
+
+  let decoded = try JSONDecoder().decode(Settings.self, from: stripped)
+
+  #expect(decoded.headRotationCorrection == nil)
 }

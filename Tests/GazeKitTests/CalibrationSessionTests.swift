@@ -140,7 +140,7 @@ private func tightBurst(around target: NormalizedGazePoint) -> [NormalizedGazePo
       #expect(run.stage == .fitting(targetIndex: index + 1))
     } else {
       #expect(outcome == .advancedToNextFitTarget)
-      #expect(run.stage == .validating(targetIndex: 0))
+      #expect(run.stage == .sweeping)
     }
   }
 }
@@ -151,6 +151,7 @@ private func tightBurst(around target: NormalizedGazePoint) -> [NormalizedGazePo
   for target in plan.fitTargets {
     _ = run.submitBurst(tightBurst(around: target))
   }
+  _ = run.submitSweep([])
 
   var finalOutcome: CalibrationSubmitOutcome?
   for target in plan.validationTargets {
@@ -188,6 +189,7 @@ private func tightBurst(around target: NormalizedGazePoint) -> [NormalizedGazePo
     _ = run.submitBurst(tightBurst(around: target))
   }
   run.recordDistance(48)
+  _ = run.submitSweep([])
 
   var finalOutcome: CalibrationSubmitOutcome?
   for target in plan.validationTargets {
@@ -211,6 +213,12 @@ private func tightBurst(around target: NormalizedGazePoint) -> [NormalizedGazePo
   for target in plan.fitTargets {
     _ = run.submitBurst(tightBurst(around: target))
   }
+  #expect(run.stage == .sweeping)
+  #expect(
+    run.currentTargetScreenPoint
+      == CalibrationTargetPlan.screenPoint(for: plan.sweepTarget, in: bounds))
+
+  _ = run.submitSweep([])
   #expect(
     run.currentTargetScreenPoint
       == CalibrationTargetPlan.screenPoint(for: plan.validationTargets[0], in: bounds))
@@ -230,6 +238,7 @@ private func tightBurst(around target: NormalizedGazePoint) -> [NormalizedGazePo
   }
 
   for target in plan.fitTargets { _ = run.submitBurst(burst(around: target)) }
+  _ = run.submitSweep([])
   var finalOutcome: CalibrationSubmitOutcome?
   for target in plan.validationTargets { finalOutcome = run.submitBurst(burst(around: target)) }
 
@@ -260,6 +269,7 @@ private func tightBurst(around target: NormalizedGazePoint) -> [NormalizedGazePo
   }
   #expect(run.acceptedFitOrigins.count == fitCount)
 
+  _ = run.submitSweep([])
   for target in plan.validationTargets {
     _ = run.submitBurst([NormalizedGazePoint(x: target.x - 0.5, y: target.y - 0.5)])
   }
@@ -284,6 +294,7 @@ private func tightBurst(around target: NormalizedGazePoint) -> [NormalizedGazePo
     accepted += 1
     _ = run.submitBurst(tightBurst(around: target))
   }
+  _ = run.submitSweep([])
   var finalOutcome: CalibrationSubmitOutcome?
   for target in plan.validationTargets {
     run.recordImpliedInterpupillary(recorded[accepted % recorded.count])
@@ -313,6 +324,7 @@ private func tightBurst(around target: NormalizedGazePoint) -> [NormalizedGazePo
     }
     _ = run.submitBurst(tightBurst(around: target))
   }
+  _ = run.submitSweep([])
   var finalOutcome: CalibrationSubmitOutcome?
   for target in plan.validationTargets {
     if next < recorded.count {
@@ -327,4 +339,54 @@ private func tightBurst(around target: NormalizedGazePoint) -> [NormalizedGazePo
     return
   }
   #expect(result.interpupillaryCentimetres == nil)
+}
+
+@Test func aHeadSweepWithAKnownSlopeStoresTheFittedCorrection() {
+  var run = makeRun()
+  let plan = CalibrationTargetPlan(inset: 0.1)
+  for target in plan.fitTargets {
+    _ = run.submitBurst(tightBurst(around: target))
+  }
+  #expect(run.stage == .sweeping)
+
+  let sweepPoint = CalibrationTargetPlan.screenPoint(for: plan.sweepTarget, in: bounds)
+  var samples: [HeadRotationFit.Sample] = []
+  for index in 0..<40 {
+    let yaw = -0.2 + 0.4 * Double(index) / 39
+    samples.append(
+      HeadRotationFit.Sample(
+        projected: CGPoint(x: sweepPoint.x + 1500 * (yaw - 0.02), y: sweepPoint.y),
+        yawRadians: yaw, pitchRadians: 0))
+  }
+  #expect(run.submitSweep(samples) == .advancedToNextValidationTarget)
+  #expect(run.stage == .validating(targetIndex: 0))
+
+  var finalOutcome: CalibrationSubmitOutcome?
+  for target in plan.validationTargets {
+    finalOutcome = run.submitBurst(tightBurst(around: target))
+  }
+  guard case .completed(let result) = finalOutcome else {
+    Issue.record("expected a completed result, got \(String(describing: finalOutcome))")
+    return
+  }
+  #expect(abs((result.headRotationCorrection?.yawGainPointsPerRadian ?? 0) - 1500) <= 1e-6)
+}
+
+@Test func aSweepWithNoSamplesCompletesWithoutACorrection() {
+  var run = makeRun()
+  let plan = CalibrationTargetPlan(inset: 0.1)
+  for target in plan.fitTargets {
+    _ = run.submitBurst(tightBurst(around: target))
+  }
+  #expect(run.submitSweep([]) == .advancedToNextValidationTarget)
+
+  var finalOutcome: CalibrationSubmitOutcome?
+  for target in plan.validationTargets {
+    finalOutcome = run.submitBurst(tightBurst(around: target))
+  }
+  guard case .completed(let result) = finalOutcome else {
+    Issue.record("expected a completed result, got \(String(describing: finalOutcome))")
+    return
+  }
+  #expect(result.headRotationCorrection == nil)
 }

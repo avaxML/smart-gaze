@@ -96,6 +96,8 @@ struct VideoGazeHarness {
     var ys: [Double] = []
     var times: [Double] = []
     var yaws: [Double] = []
+    var signedYaws: [Double] = []
+    var pitches: [Double] = []
     var trackedCropFrames = 0
     var cropRotations: [Double] = []
     var firstErrors: [String] = []
@@ -118,6 +120,8 @@ struct VideoGazeHarness {
         xs.append(estimate.gaze.x)
         ys.append(estimate.gaze.y)
         yaws.append(abs(estimate.headYawRadians))
+        signedYaws.append(estimate.headYawRadians)
+        pitches.append(estimate.headPitchRadians)
         times.append(Double(frames) / 25.0)
         if estimate.usedTrackedCrop { trackedCropFrames += 1 }
         cropRotations.append(abs(estimate.cropRotationRadians))
@@ -186,6 +190,40 @@ struct VideoGazeHarness {
       "head |yaw| rad  p50 \(percentile(yaws, 0.5))  p90 \(percentile(yaws, 0.9))  p95 \(percentile(yaws, 0.95))  max \(percentile(yaws, 1))  "
         + "frames above 0.40: \(yaws.filter { $0 > 0.40 }.count) of \(yaws.count)")
 
+    let screen = CGSize(
+      width: Double(ProcessInfo.processInfo.environment["SMART_GAZE_SCREEN_W"] ?? "1728") ?? 1728,
+      height: Double(ProcessInfo.processInfo.environment["SMART_GAZE_SCREEN_H"] ?? "1117") ?? 1117)
+    let yawRange = (signedYaws.max() ?? 0) - (signedYaws.min() ?? 0)
+    let pitchRange = (pitches.max() ?? 0) - (pitches.min() ?? 0)
+    print(
+      "head yaw range rad \(String(format: "%.4f", yawRange))  pitch range rad \(String(format: "%.4f", pitchRange))"
+    )
+    if signedYaws.count >= 20, yawRange > HeadRotationFit.minimumYawRangeRadians,
+      pitchRange > HeadRotationFit.minimumPitchRangeRadians
+    {
+      let count = Double(signedYaws.count)
+      let meanYaw = signedYaws.reduce(0, +) / count
+      let meanPitch = pitches.reduce(0, +) / count
+      let projected = xs.indices.map {
+        CGPoint(x: xs[$0] * screen.width, y: ys[$0] * screen.height)
+      }
+      let meanProjected = CGPoint(
+        x: projected.map(\.x).reduce(0, +) / count,
+        y: projected.map(\.y).reduce(0, +) / count)
+      let sweepSamples = signedYaws.indices.map {
+        HeadRotationFit.Sample(
+          projected: projected[$0], yawRadians: signedYaws[$0], pitchRadians: pitches[$0])
+      }
+      if let fit = HeadRotationFit.fit(
+        samples: sweepSamples, target: meanProjected, referenceYawRadians: meanYaw,
+        referencePitchRadians: meanPitch)
+      {
+        print(
+          "head rotation fit gains pt/rad  yaw \(fit.yawGainPointsPerRadian)  pitch \(fit.pitchGainPointsPerRadian)"
+        )
+      }
+    }
+
     print(
       "iris frames \(irisFrames) of \(produced)  median diameter px  left \(String(format: "%.2f", percentile(leftIrisDiameters, 0.5)))  right \(String(format: "%.2f", percentile(rightIrisDiameters, 0.5)))"
     )
@@ -203,9 +241,6 @@ struct VideoGazeHarness {
     // Run the real filter and the real dispersion metric the trigger uses, so the
     // number reported here is comparable to the shipped threshold rather than a
     // differently defined spread.
-    let screen = CGSize(
-      width: Double(ProcessInfo.processInfo.environment["SMART_GAZE_SCREEN_W"] ?? "1728") ?? 1728,
-      height: Double(ProcessInfo.processInfo.environment["SMART_GAZE_SCREEN_H"] ?? "1117") ?? 1117)
     var filter = OneEuroPointFilter()
     var points: [(CGPoint, Double)] = []
     for index in xs.indices {

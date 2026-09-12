@@ -44,6 +44,9 @@ public struct Settings: Codable, Equatable, Sendable {
   public var calibrationDistanceCentimeters: Double?
   public var calibratedBounds: CGRect?
   public var headTranslationCorrection: HeadTranslationCorrection?
+  /// The fitted rotation correction from the calibration head sweep; `nil`
+  /// until a calibration has measured one.
+  public var headRotationCorrection: HeadRotationCorrection?
   /// The user's fitted interpupillary distance, centimetres; `nil` until a
   /// calibration has measured one.
   public var interpupillaryCentimetres: Double?
@@ -63,6 +66,7 @@ public struct Settings: Codable, Equatable, Sendable {
     case calibrationDistanceCentimeters
     case calibratedBounds
     case headTranslationCorrection
+    case headRotationCorrection
     case interpupillaryCentimetres
   }
 
@@ -87,6 +91,8 @@ public struct Settings: Codable, Equatable, Sendable {
     calibratedBounds = try? container.decode(CGRect.self, forKey: .calibratedBounds)
     headTranslationCorrection = try? container.decode(
       HeadTranslationCorrection.self, forKey: .headTranslationCorrection)
+    headRotationCorrection = try? container.decode(
+      HeadRotationCorrection.self, forKey: .headRotationCorrection)
     interpupillaryCentimetres = try container.decodeIfPresent(
       Double.self, forKey: .interpupillaryCentimetres)
   }
@@ -106,6 +112,7 @@ public struct Settings: Codable, Equatable, Sendable {
     calibrationDistanceCentimeters: Double? = nil,
     calibratedBounds: CGRect? = nil,
     headTranslationCorrection: HeadTranslationCorrection? = nil,
+    headRotationCorrection: HeadRotationCorrection? = nil,
     interpupillaryCentimetres: Double? = nil
   ) {
     self.dwellSeconds = dwellSeconds
@@ -122,6 +129,7 @@ public struct Settings: Codable, Equatable, Sendable {
     self.calibrationDistanceCentimeters = calibrationDistanceCentimeters
     self.calibratedBounds = calibratedBounds
     self.headTranslationCorrection = headTranslationCorrection
+    self.headRotationCorrection = headRotationCorrection
     self.interpupillaryCentimetres = interpupillaryCentimetres
   }
 

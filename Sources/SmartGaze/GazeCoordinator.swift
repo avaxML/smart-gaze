@@ -49,6 +49,7 @@ actor GazeCoordinator {
   private var headPose = HeadPoseGate()
   private let calibration: CalibrationMap?
   private let headTranslation: HeadTranslationCorrection?
+  private let headRotation: HeadRotationCorrection?
 
   private let gazePipeline: GazePipeline?
   private let capturer: any RegionCapturing
@@ -86,6 +87,7 @@ actor GazeCoordinator {
     self.calibration = settings.calibrationMap
     self.gazeFilter = OneEuroPointFilter(smoothing: settings.gazeSmoothing)
     self.headTranslation = settings.headTranslationCorrection
+    self.headRotation = settings.headRotationCorrection
     self.gazePipeline = gazePipeline
     self.capturer = capturer
     self.bubble = bubble
@@ -133,9 +135,14 @@ actor GazeCoordinator {
       faceLoss.recordSuccess()
       handleHeadYaw(estimate.headYawRadians)
       let projected = calibration.project(estimate.gaze)
-      let screenPoint =
+      var screenPoint =
         headTranslation?.correct(projected, faceOriginCentimeters: estimate.faceOriginCentimeters)
         ?? projected
+      if let headRotation {
+        screenPoint = headRotation.correct(
+          screenPoint, yawRadians: estimate.headYawRadians,
+          pitchRadians: estimate.headPitchRadians)
+      }
       let filtered = gazeFilter.apply(screenPoint, at: timestamp)
       if !reportedSessionOrigin {
         reportedSessionOrigin = true

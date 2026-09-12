@@ -10,9 +10,10 @@ public struct HeadPoseGate: Equatable, Sendable {
   public let releaseBelowRadians: Double
   public private(set) var isBlocked = false
 
-  /// Defaults are about 23 degrees to block and 17 to release, the band
-  /// between a natural glance across one display and a turn to the next.
-  public init(blockAboveRadians: Double = 0.40, releaseBelowRadians: Double = 0.30) {
+  /// Defaults are about 34 degrees to block and 29 to release, wide enough
+  /// that a corner glance and its small head turn stay tracked while a turn
+  /// to the next display still blocks.
+  public init(blockAboveRadians: Double = 0.60, releaseBelowRadians: Double = 0.50) {
     self.blockAboveRadians = blockAboveRadians
     self.releaseBelowRadians = releaseBelowRadians
   }

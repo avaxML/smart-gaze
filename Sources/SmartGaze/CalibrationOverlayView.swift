@@ -42,7 +42,8 @@ struct CalibrationOverlayView: View {
 
   private var currentTarget: CGPoint? {
     switch coordinator.phase {
-    case .settling(let target), .collecting(let target), .retrying(let target):
+    case .settling(let target), .collecting(let target), .retrying(let target),
+      .sweeping(let target, _):
       return target
     default:
       return nil
@@ -53,6 +54,8 @@ struct CalibrationOverlayView: View {
     switch coordinator.phase {
     case .collecting: .collecting
     case .retrying: .retrying
+    case .sweeping:
+      .sweeping(yaw: coordinator.sweepYawCoverage, pitch: coordinator.sweepPitchCoverage)
     default: .settling
     }
   }
@@ -91,6 +94,7 @@ struct CalibrationOverlayView: View {
 struct CalibrationTargetView: View {
   enum Phase: Equatable {
     case settling, collecting, retrying
+    case sweeping(yaw: Double, pitch: Double)
   }
 
   var phase: Phase
@@ -106,18 +110,7 @@ struct CalibrationTargetView: View {
 
   var body: some View {
     ZStack {
-      Circle()
-        .stroke(.white.opacity(0.18), lineWidth: 4)
-        .frame(width: ringDiameter, height: ringDiameter)
-
-      Circle()
-        .trim(from: 0, to: fill)
-        .stroke(
-          retryFlash ? Color.orange : Color.white,
-          style: StrokeStyle(lineWidth: 4, lineCap: .round)
-        )
-        .rotationEffect(.degrees(-90))
-        .frame(width: ringDiameter, height: ringDiameter)
+      ring
 
       Circle()
         .fill(.white)
@@ -126,6 +119,46 @@ struct CalibrationTargetView: View {
     }
     .onAppear { apply(phase, animated: false) }
     .onChange(of: phase) { _, next in apply(next, animated: true) }
+  }
+
+  /// The still ring on a held target, or the four arcs that fill with the
+  /// sweep's yaw and pitch coverage. Left and right fill with yaw, top and
+  /// bottom with pitch, so the user sees which way still needs a turn without
+  /// any text.
+  @ViewBuilder
+  private var ring: some View {
+    switch phase {
+    case .sweeping(let yaw, let pitch):
+      ZStack {
+        arc(fill: yaw, startingAtDegrees: -45)
+        arc(fill: yaw, startingAtDegrees: 135)
+        arc(fill: pitch, startingAtDegrees: 45)
+        arc(fill: pitch, startingAtDegrees: 225)
+      }
+      .frame(width: ringDiameter, height: ringDiameter)
+    case .settling, .collecting, .retrying:
+      ZStack {
+        Circle()
+          .stroke(.white.opacity(0.18), lineWidth: 4)
+
+        Circle()
+          .trim(from: 0, to: fill)
+          .stroke(
+            retryFlash ? Color.orange : Color.white,
+            style: StrokeStyle(lineWidth: 4, lineCap: .round)
+          )
+          .rotationEffect(.degrees(-90))
+      }
+      .frame(width: ringDiameter, height: ringDiameter)
+    }
+  }
+
+  private func arc(fill: Double, startingAtDegrees degrees: Double) -> some View {
+    Circle()
+      .trim(from: 0, to: 0.25 * min(1, max(0, fill)))
+      .stroke(.white, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+      .rotationEffect(.degrees(degrees))
+      .frame(width: ringDiameter, height: ringDiameter)
   }
 
   private func apply(_ next: Phase, animated: Bool) {
@@ -148,6 +181,14 @@ struct CalibrationTargetView: View {
       withAnimation(.easeOut(duration: 0.15)) { retryFlash = true }
       withAnimation(.easeOut(duration: 0.25).delay(0.15)) { fill = 0 }
       withAnimation(.easeOut(duration: 0.2).delay(0.4)) { retryFlash = false }
+    case .sweeping:
+      retryFlash = false
+      withAnimation(animated ? .easeOut(duration: 0.2) : nil) { fill = 0 }
+      if !breathe {
+        withAnimation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true)) {
+          breathe = true
+        }
+      }
     }
   }
 

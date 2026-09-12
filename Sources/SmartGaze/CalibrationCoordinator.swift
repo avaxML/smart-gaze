@@ -21,6 +21,7 @@ final class CalibrationCoordinator {
     case settling(target: CGPoint)
     case collecting(target: CGPoint)
     case retrying(target: CGPoint)
+    case sweeping(target: CGPoint, coverage: Double)
     case completed(CalibrationResult)
     case failed(String)
     case aborted
@@ -32,6 +33,10 @@ final class CalibrationCoordinator {
 
   private(set) var phase: Phase = .preparing
   private(set) var progress: (completed: Int, total: Int) = (0, 0)
+  /// Yaw and pitch coverage of the head sweep, 0...1, for the target ring's
+  /// four arcs. The phase's single `coverage` is the smaller of the two.
+  private(set) var sweepYawCoverage: Double = 0
+  private(set) var sweepPitchCoverage: Double = 0
   private(set) var setupFace: CalibrationSetupFace?
   private(set) var setupImage: CGImage?
   private(set) var frameSize: CGSize = .zero
@@ -50,6 +55,8 @@ final class CalibrationCoordinator {
   private var run: CalibrationRun?
   private var runTask: Task<Void, Never>?
   private var bufferedGaze: [NormalizedGazePoint] = []
+  private var bufferedSweepSamples: [HeadRotationFit.Sample] = []
+  private var bufferedHeadPoses: [(yaw: Double, pitch: Double)] = []
   private var frameCount = 0
   private var gazeCount = 0
   private var gazeErrorCount = 0
@@ -189,6 +196,10 @@ final class CalibrationCoordinator {
     setupImage = nil
 
     while !Task.isCancelled {
+      if let stage = run?.stage, case .sweeping = stage {
+        await runSweep()
+        continue
+      }
       guard var currentRun = run, let target = currentRun.currentTargetScreenPoint else { break }
 
       phase = .settling(target: target)
@@ -198,6 +209,7 @@ final class CalibrationCoordinator {
 
       phase = .collecting(target: target)
       bufferedGaze = []
+      bufferedHeadPoses = []
       try? await Task.sleep(for: burstDuration)
       if Task.isCancelled { return }
 
@@ -213,6 +225,9 @@ final class CalibrationCoordinator {
           .calibration,
           "origin cm=(\(latestFaceOrigin.x),\(latestFaceOrigin.y),\(latestFaceOrigin.z)) "
             + "yaw=\(latestHeadPose?.yaw ?? .nan) pitch=\(latestHeadPose?.pitch ?? .nan)")
+      }
+      if let mean = Self.meanHeadPose(bufferedHeadPoses) {
+        currentRun.recordHeadPose(yawRadians: mean.yaw, pitchRadians: mean.pitch)
       }
       if let latestImpliedInterpupillary {
         currentRun.recordImpliedInterpupillary(latestImpliedInterpupillary)
@@ -261,6 +276,51 @@ final class CalibrationCoordinator {
     onFinished?(result)
   }
 
+  /// Runs the head sweep at the centre target: every frame's projection
+  /// through the solved map paired with that frame's head pose, until the
+  /// pose coverage reaches the ring's full extent or eight seconds pass.
+  private func runSweep() async {
+    guard var currentRun = run, case .sweeping = currentRun.stage,
+      let target = currentRun.currentTargetScreenPoint
+    else { return }
+
+    bufferedSweepSamples = []
+    sweepYawCoverage = 0
+    sweepPitchCoverage = 0
+    phase = .sweeping(target: target, coverage: 0)
+    LaunchDiagnostics.record(.calibration, "sweep start")
+
+    let deadline = CACurrentMediaTime() + 8
+    while !Task.isCancelled {
+      if sweepYawCoverage >= 1, sweepPitchCoverage >= 1 { break }
+      if CACurrentMediaTime() >= deadline { break }
+      try? await Task.sleep(for: .milliseconds(50))
+    }
+    if Task.isCancelled { return }
+
+    let samples = bufferedSweepSamples
+    let measured = HeadRotationFit.sweepCoverage(samples)
+    _ = currentRun.submitSweep(samples)
+    run = currentRun
+    let correction = currentRun.solvedHeadRotationCorrection
+    LaunchDiagnostics.record(
+      .calibration,
+      "sweep samples=\(samples.count) yawRange=\(measured.yaw) pitchRange=\(measured.pitch) "
+        + "gains=(\(correction?.yawGainPointsPerRadian ?? 0),"
+        + "\(correction?.pitchGainPointsPerRadian ?? 0))")
+  }
+
+  private nonisolated static func meanHeadPose(
+    _ poses: [(yaw: Double, pitch: Double)]
+  ) -> (yaw: Double, pitch: Double)? {
+    guard !poses.isEmpty else { return nil }
+    let count = Double(poses.count)
+    return (
+      yaw: poses.map(\.yaw).reduce(0, +) / count,
+      pitch: poses.map(\.pitch).reduce(0, +) / count
+    )
+  }
+
   private func stopCamera() {
     camera.onFrame = nil
     camera.onError = nil
@@ -292,6 +352,24 @@ final class CalibrationCoordinator {
         self.latestDistanceCentimeters = estimate.faceDistanceCentimeters
         self.latestFaceOrigin = estimate.faceOriginCentimeters
         self.latestHeadPose = (estimate.headYawRadians, estimate.headPitchRadians)
+        self.run?.recordHeadPose(
+          yawRadians: estimate.headYawRadians, pitchRadians: estimate.headPitchRadians)
+        if case .collecting = self.phase {
+          self.bufferedHeadPoses.append(
+            (yaw: estimate.headYawRadians, pitch: estimate.headPitchRadians))
+        }
+        if case .sweeping(let target, _) = self.phase, let map = self.run?.solvedMap {
+          self.bufferedSweepSamples.append(
+            HeadRotationFit.Sample(
+              projected: map.project(estimate.gaze), yawRadians: estimate.headYawRadians,
+              pitchRadians: estimate.headPitchRadians))
+          let coverage = HeadRotationFit.sweepCoverage(self.bufferedSweepSamples)
+          self.sweepYawCoverage = min(1, coverage.yaw / 0.30)
+          self.sweepPitchCoverage = min(1, coverage.pitch / 0.20)
+          self.phase = .sweeping(
+            target: target,
+            coverage: min(self.sweepYawCoverage, self.sweepPitchCoverage))
+        }
         if let iris = estimate.iris,
           let implied = InterpupillaryFit.impliedCentimetres(
             irisDepthCentimetres: iris.depthCentimetres,
