@@ -149,6 +149,10 @@ private func writePNG(_ image: CGImage, named name: String, to directory: URL) t
   }
 }
 
+@Test func setupViewUsesTheGuidanceTitleTrackingConstant() {
+  #expect(CalibrationSetupView.guidanceTitleTracking == -0.01)
+}
+
 @Test func setupViewProjectsTheBandWithAspectFill() {
   let projected = CalibrationSetupView.project(
     CGPoint(x: 0.5, y: 0.5),

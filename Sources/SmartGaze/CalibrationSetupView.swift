@@ -10,77 +10,127 @@ import SwiftUI
 /// that nothing may compete for the eye beside a live target does not apply
 /// until the dot sequence starts.
 struct CalibrationSetupView: View {
+  // The visor arrives as one thick surface, so its scale and the mesh sweep it
+  // carries share a single critically damped spring: it settles, never bounces.
+  static let presenceSpring = Animation.spring(response: 0.4, dampingFraction: 1.0)
+  static let progressSpring = Animation.spring(response: 0.25, dampingFraction: 1.0)
+  static let visorRestingScale: CGFloat = 0.96
+  static let visorWidthRatio: CGFloat = 0.58
+  static let visorAspectRatio: CGFloat = 2.6
+  static let visorCornerRadiusRatio: CGFloat = 0.20
+  static let visorCenterYRatio: CGFloat = 0.44
+  static let guidanceGap: CGFloat = 28
+  static let guidanceHeight: CGFloat = 96
+  static let guidanceSettleOffset: CGFloat = 4
+
+  // The stagger spans most of the spring's travel so the last column lands as
+  // the visor settles, capping the whole sweep at the spring's ~0.5 s.
+  static let meshSweepStaggerSpan: Double = 0.7
+  static let meshSweepFadeWidth: Double = 0.3
+  static let irisPulseDuration: Double = 1.8
+  static let irisPulseScale: Double = 0.06
+
+  static let meshDotDiameter: CGFloat = 1.25
+  static let meshDotOpacity: Double = 0.45
+  static let contourDotDiameter: CGFloat = 1.25
+  static let contourDotOpacity: Double = 0.70
+  static let irisRingWidth: CGFloat = 1.75
+  static let irisRingOpacity: Double = 0.90
+  static let irisDotDiameter: CGFloat = 2.5
+  static let bandFeatherFraction: CGFloat = 0.18
+  static let borderHairline: CGFloat = 1
+  static let borderOpacity: Double = 0.12
+  static let borderHighlightOpacity: Double = 0.22
+
+  static let guidanceTitleTracking: CGFloat = -0.01
+  static let progressBarWidth: CGFloat = 160
+  static let progressBarHeight: CGFloat = 3
+
   var face: CalibrationSetupFace?
   var image: CGImage?
   var guidance: CalibrationSetupGuidance
   var frameSize: CGSize
 
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
-  @State private var reveal: Double = 1
+  @State private var presence: Double = 1
   @State private var pulse: Double = 0
-  @State private var glow = false
-
-  private let guidanceHeight: CGFloat = 96
-  private let guidanceGap: CGFloat = 40
 
   var body: some View {
     GeometryReader { proxy in
       let size = proxy.size
-      let visorWidth = size.width * 0.62
-      let visorHeight = visorWidth / 2.6
-      let corner = visorHeight * 0.22
+      let visorWidth = size.width * Self.visorWidthRatio
+      let visorHeight = visorWidth / Self.visorAspectRatio
+      let corner = visorHeight * Self.visorCornerRadiusRatio
+      let visorCenterY = size.height * Self.visorCenterYRatio
 
       ZStack {
         Color.black
 
         visor(width: visorWidth, height: visorHeight, corner: corner)
-          .position(x: size.width / 2, y: size.height / 2)
+          .scaleEffect(visorScale)
+          .opacity(presence)
+          .position(x: size.width / 2, y: visorCenterY)
 
-        guidanceContent
-          .frame(width: visorWidth, height: guidanceHeight)
-          .position(
-            x: size.width / 2,
-            y: size.height / 2 + visorHeight / 2 + guidanceGap + guidanceHeight / 2
-          )
-          .animation(.easeInOut(duration: 0.25), value: guidance)
+        ZStack {
+          guidanceContent
+            .contentTransition(.opacity)
+            .id(guidanceKey)
+            .transition(
+              reduceMotion
+                ? .opacity
+                : .offset(y: Self.guidanceSettleOffset).combined(with: .opacity))
+        }
+        .foregroundStyle(.white)
+        .frame(width: visorWidth, height: Self.guidanceHeight)
+        .animation(Self.presenceSpring, value: guidanceKey)
+        .position(
+          x: size.width / 2,
+          y: visorCenterY + visorHeight / 2 + Self.guidanceGap + Self.guidanceHeight / 2
+        )
       }
       .frame(width: size.width, height: size.height)
     }
     .ignoresSafeArea()
     .task {
+      // Seed the absent state after the first frame so an offscreen
+      // ImageRenderer snapshot still shows the settled visor.
+      await Task.yield()
+      if face == nil { presence = 0 }
       guard !reduceMotion else { return }
-      // The repeating pulse and glow start one frame after the view settles.
-      // Starting them during the first render makes an offscreen ImageRenderer
-      // snapshot drop every Text sibling.
+      // The repeating pulse starts one frame after the view settles. Starting
+      // it during the first render makes an offscreen ImageRenderer snapshot
+      // drop every Text sibling.
       try? await Task.sleep(for: .milliseconds(50))
-      startAnimations()
+      withAnimation(
+        .easeInOut(duration: Self.irisPulseDuration).repeatForever(autoreverses: true)
+      ) {
+        pulse = 1
+      }
     }
     .onChange(of: face != nil) { _, present in
-      if present {
-        animateReveal()
-      } else {
-        reveal = 0
+      withAnimation(Self.presenceSpring) {
+        presence = present ? 1 : 0
       }
     }
   }
 
-  private func startAnimations() {
-    guard !reduceMotion else { return }
-    withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
-      pulse = 1
-    }
-    withAnimation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true)) {
-      glow = true
-    }
+  private var visorScale: CGFloat {
+    guard !reduceMotion else { return 1 }
+    return Self.visorRestingScale + (1 - Self.visorRestingScale) * CGFloat(presence)
   }
 
-  private func animateReveal() {
-    if reduceMotion {
-      withAnimation(.easeOut(duration: 0.3)) { reveal = 1 }
-      return
+  /// Case identity for the guidance crossfade. It deliberately ignores the
+  /// live `holdStill` progress and `centerFace` offsets so a changing value
+  /// updates in place instead of replaying the transition every frame.
+  private var guidanceKey: Int {
+    switch guidance {
+    case .findingFace: 0
+    case .moveCloser: 1
+    case .moveBack: 2
+    case .centerFace: 3
+    case .holdStill: 4
+    case .ready: 5
     }
-    reveal = 0
-    withAnimation(.easeOut(duration: 0.6)) { reveal = 1 }
   }
 
   private func visor(width: CGFloat, height: CGFloat, corner: CGFloat) -> some View {
@@ -93,16 +143,17 @@ struct CalibrationSetupView: View {
       .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
 
       RoundedRectangle(cornerRadius: corner, style: .continuous)
-        .strokeBorder(borderColor, lineWidth: 2)
+        .strokeBorder(.white.opacity(borderOpacity), lineWidth: Self.borderHairline)
     }
     .frame(width: width, height: height)
+    .animation(Self.presenceSpring, value: guidanceKey)
   }
 
-  private var borderColor: Color {
-    if face == nil {
-      return .white.opacity(0.18 + (glow ? 0.22 : 0))
+  private var borderOpacity: Double {
+    switch guidance {
+    case .holdStill, .ready: return Self.borderHighlightOpacity
+    default: return Self.borderOpacity
     }
-    return .white.opacity(0.14)
   }
 
   private var accent: Color { .accentColor }
@@ -110,10 +161,8 @@ struct CalibrationSetupView: View {
   private var feather: Gradient {
     Gradient(stops: [
       .init(color: .black, location: 0),
-      .init(color: .black.opacity(0.75), location: 0.14),
-      .init(color: .clear, location: 0.36),
-      .init(color: .clear, location: 0.64),
-      .init(color: .black.opacity(0.75), location: 0.86),
+      .init(color: .clear, location: Self.bandFeatherFraction),
+      .init(color: .clear, location: 1 - Self.bandFeatherFraction),
       .init(color: .black, location: 1),
     ])
   }
@@ -197,22 +246,26 @@ struct CalibrationSetupView: View {
     let maxX = mesh.map(\.x).max() ?? 1
     let span = max(Double(maxX - minX), 0.0001)
     for point in mesh {
-      let alpha = dotAlpha(position: Double(point.x - minX) / span)
+      let alpha = Self.meshDotOpacity * sweep(position: Double(point.x - minX) / span)
       guard alpha > 0.004 else { continue }
       let projected = Self.project(point, band: band, frameSize: frameSize, visorSize: size)
-      drawDot(at: projected, opacity: 0.55 * alpha, in: context)
+      drawDot(at: projected, opacity: alpha, diameter: Self.meshDotDiameter, in: context)
     }
   }
 
-  private func drawDot(at point: CGPoint, opacity: Double, in context: GraphicsContext) {
-    let rect = CGRect(x: point.x - 0.75, y: point.y - 0.75, width: 1.5, height: 1.5)
-    context.fill(Path(ellipseIn: rect), with: .color(.white.opacity(opacity)))
+  private func sweep(position: Double) -> Double {
+    guard !reduceMotion else { return 1 }
+    let delay = position * Self.meshSweepStaggerSpan
+    return min(max((presence - delay) / Self.meshSweepFadeWidth, 0), 1)
   }
 
-  private func dotAlpha(position: Double) -> Double {
-    guard !reduceMotion else { return reveal }
-    let delay = position * 0.7
-    return min(max((reveal - delay) / 0.3, 0), 1)
+  private func drawDot(
+    at point: CGPoint, opacity: Double, diameter: CGFloat, in context: GraphicsContext
+  ) {
+    let radius = diameter / 2
+    let rect = CGRect(
+      x: point.x - radius, y: point.y - radius, width: diameter, height: diameter)
+    context.fill(Path(ellipseIn: rect), with: .color(.white.opacity(opacity)))
   }
 
   private func draw(
@@ -220,7 +273,9 @@ struct CalibrationSetupView: View {
   ) {
     for point in contour {
       let projected = Self.project(point, band: band, frameSize: frameSize, visorSize: size)
-      drawDot(at: projected, opacity: 0.8 * reveal, in: context)
+      drawDot(
+        at: projected, opacity: Self.contourDotOpacity, diameter: Self.contourDotDiameter,
+        in: context)
     }
   }
 
@@ -236,54 +291,73 @@ struct CalibrationSetupView: View {
     let radius =
       rim.map { hypot(Double($0.x - center.x), Double($0.y - center.y)) }.reduce(0, +)
       / Double(rim.count)
-    let scale = 1 + 0.08 * pulse
+    let scale = 1 + Self.irisPulseScale * pulse
     let ring = CGRect(
       x: center.x - CGFloat(radius * scale),
       y: center.y - CGFloat(radius * scale),
       width: CGFloat(2 * radius * scale),
       height: CGFloat(2 * radius * scale)
     )
-    context.stroke(Path(ellipseIn: ring), with: .color(accent.opacity(reveal)), lineWidth: 1.5)
-    let dot = CGRect(x: center.x - 1, y: center.y - 1, width: 2, height: 2)
-    context.fill(Path(ellipseIn: dot), with: .color(accent.opacity(reveal)))
+    context.stroke(
+      Path(ellipseIn: ring), with: .color(accent.opacity(Self.irisRingOpacity)),
+      lineWidth: Self.irisRingWidth)
+    let dotRadius = Self.irisDotDiameter / 2
+    let dot = CGRect(
+      x: center.x - dotRadius, y: center.y - dotRadius, width: Self.irisDotDiameter,
+      height: Self.irisDotDiameter)
+    context.fill(Path(ellipseIn: dot), with: .color(accent))
   }
 
   @ViewBuilder
   private var guidanceContent: some View {
     switch guidance {
     case .findingFace:
-      captionStack("Looking for your face", "Sit in front of the camera")
+      guidanceStack("Looking for your face", "Sit in front of the camera")
     case .moveCloser:
-      captionStack("Move a little closer", "About an arm's length from the screen")
+      guidanceStack("Move a little closer", "About an arm's length from the screen")
     case .moveBack:
-      captionStack("Move back a little", "About an arm's length from the screen")
+      guidanceStack("Move back a little", "About an arm's length from the screen")
     case .centerFace(let offsetX, let offsetY):
       VStack(spacing: 8) {
         HStack(spacing: 10) {
           Image(systemName: arrowSymbol(offsetX: offsetX, offsetY: offsetY))
-          Text("Center your face").font(.title3.weight(.medium))
+            .symbolEffect(.pulse, isActive: !reduceMotion)
+          guidanceTitle("Center your face")
         }
-        Text("Keep your eyes level").font(.caption).foregroundStyle(.secondary)
+        guidanceCaption("Keep your eyes level")
       }
-      .foregroundStyle(.white)
     case .holdStill(let progress):
       VStack(spacing: 8) {
-        Text("Hold still").font(.title3.weight(.medium))
-        Text("Keep your head still").font(.caption).foregroundStyle(.secondary)
-        progressBar(progress: progress)
+        guidanceTitle("Hold still")
+        guidanceCaption("Keep your head still")
+        progressBar(progress: progress, isReady: false)
       }
-      .foregroundStyle(.white)
     case .ready:
-      captionStack("Ready", "Follow the dot")
+      VStack(spacing: 8) {
+        guidanceTitle("Ready")
+        guidanceCaption("Follow the dot")
+        progressBar(progress: 1, isReady: true)
+      }
     }
   }
 
-  private func captionStack(_ title: String, _ caption: String) -> some View {
+  private func guidanceTitle(_ text: String) -> some View {
+    Text(text)
+      .font(.title2.weight(.semibold))
+      .tracking(Self.guidanceTitleTracking)
+  }
+
+  private func guidanceCaption(_ text: String) -> some View {
+    Text(text)
+      .font(.callout)
+      .foregroundStyle(.secondary)
+  }
+
+  private func guidanceStack(_ title: String, _ caption: String) -> some View {
     VStack(spacing: 8) {
-      Text(title).font(.title3.weight(.medium))
-      Text(caption).font(.caption).foregroundStyle(.secondary)
+      guidanceTitle(title)
+      guidanceCaption(caption)
     }
-    .foregroundStyle(.white)
   }
 
   /// The visor shows the user a mirror, so a horizontal correction points with
@@ -295,12 +369,15 @@ struct CalibrationSetupView: View {
     return offsetY >= 0 ? "arrow.up" : "arrow.down"
   }
 
-  private func progressBar(progress: Double) -> some View {
+  private func progressBar(progress: Double, isReady: Bool) -> some View {
     let clamped = min(max(progress, 0), 1)
     return ZStack(alignment: .leading) {
       Capsule().fill(.white.opacity(0.18))
-      Capsule().fill(.white).frame(width: 200 * clamped)
+      Capsule()
+        .fill(isReady ? accent : .white)
+        .frame(width: Self.progressBarWidth * CGFloat(clamped))
     }
-    .frame(width: 200, height: 3)
+    .frame(width: Self.progressBarWidth, height: Self.progressBarHeight)
+    .animation(Self.progressSpring, value: clamped)
   }
 }

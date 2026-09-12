@@ -35,7 +35,6 @@ struct CalibrationOverlayView: View {
           guidance: guidance,
           frameSize: coordinator.frameSize
         )
-        .transition(.opacity)
       }
     }
   }
