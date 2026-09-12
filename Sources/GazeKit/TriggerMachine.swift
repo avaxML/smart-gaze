@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 
 public enum ActivationMode: String, Codable, CaseIterable, Sendable {
-  case modifierHeld, passiveDwell, doubleBlink
+  case modifierHeld, passiveDwell, doubleBlink, squint
 }
 
 public enum TriggerState: Equatable, Sendable {
@@ -19,6 +19,7 @@ public enum TriggerInput: Equatable, Sendable {
   case modifierDown(TimeInterval)
   case modifierUp(TimeInterval)
   case blink(BlinkEvent, TimeInterval)
+  case squint(TimeInterval)
   case faceLost(TimeInterval)
   case dismissed(TimeInterval)
   /// The bubble a capture produced is no longer on screen, however it went
@@ -70,6 +71,8 @@ public struct TriggerMachine: Sendable {
       return handleModifierUp(at: time)
     case .blink(let event, let time):
       return handleBlink(event, at: time)
+    case .squint(let time):
+      return handleSquint(at: time)
     case .faceLost:
       lastGazePoint = nil
       return leaveToIdle(emitting: .hideReticle)
@@ -159,6 +162,14 @@ public struct TriggerMachine: Sendable {
     return attemptFire(at: region, now: time)
   }
 
+  private mutating func handleSquint(at time: TimeInterval) -> [TriggerEffect] {
+    guard mode == .squint, state == .idle, let region = lastGazePoint else {
+      return []
+    }
+
+    return attemptFire(at: region, now: time)
+  }
+
   private mutating func attemptFire(at region: CGPoint, now: TimeInterval) -> [TriggerEffect] {
     guard !isPresenting, blinkRate(at: now) <= blinkRateCeiling else { return [] }
 
@@ -179,6 +190,7 @@ public struct TriggerMachine: Sendable {
     case .modifierDown(let time): time
     case .modifierUp(let time): time
     case .blink(_, let time): time
+    case .squint(let time): time
     case .faceLost(let time): time
     case .dismissed(let time): time
     case .presentationEnded(let time): time

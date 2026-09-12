@@ -142,6 +142,7 @@ struct SimulationEventBridge: NSViewRepresentable {
     switch key {
     case "b": return .singleBlink
     case "d": return .doubleBlink
+    case "s": return .squint
     default: return nil
     }
   }

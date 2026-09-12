@@ -99,6 +99,10 @@ struct CalibrationPreviewView: View {
       )
       .font(.caption)
       .foregroundStyle(.secondary)
+    case .squint:
+      Text("Keep the pointer over the sample and press S to simulate a squint.")
+        .font(.caption)
+        .foregroundStyle(.secondary)
     case .passiveDwell:
       Text("Hold the pointer still over the target until the dwell completes.")
         .font(.caption)
@@ -209,6 +213,7 @@ struct CalibrationPreviewView: View {
     case .modifierHeld: "Modifier held"
     case .passiveDwell: "Passive dwell"
     case .doubleBlink: "Double blink"
+    case .squint: "Squint"
     }
   }
 
@@ -231,6 +236,7 @@ struct CalibrationPreviewView: View {
       String(format: "out of bounds (%.0f, %.0f) rejected", point.x, point.y)
     case .nonMonotonicTimestamp: "non-monotonic timestamp rejected"
     case .blinkWhileUntracked: "blink ignored without tracking"
+    case .squintWhileUntracked: "squint ignored without tracking"
     }
   }
 

@@ -268,3 +268,43 @@ private func fixation(at point: CGPoint, startingAt start: TimeInterval) -> Fixa
   #expect(machine.handle(.modifierDown(7.0)) == [])
   #expect(machine.state == .settling(since: 7.0))
 }
+
+@Test func squintModeFiresAtLastGazePoint() {
+  var machine = TriggerMachine(mode: .squint)
+
+  #expect(machine.handle(.gaze(CGPoint(x: 6, y: 8), 0.0)) == [])
+  #expect(machine.handle(.squint(0.1)) == [.capture(at: CGPoint(x: 6, y: 8))])
+  #expect(machine.state == .firing(region: CGPoint(x: 6, y: 8)))
+}
+
+@Test func squintModeSecondSquintInsideCooldownFiresNothing() {
+  var machine = TriggerMachine(mode: .squint, cooldown: 3.0)
+
+  #expect(machine.handle(.gaze(CGPoint(x: 6, y: 8), 0.0)) == [])
+  #expect(machine.handle(.squint(0.1)) == [.capture(at: CGPoint(x: 6, y: 8))])
+  #expect(machine.handle(.squint(0.2)) == [])
+  #expect(machine.state == .cooldown(until: 3.1))
+}
+
+@Test func squintModeWithNoGazeYetProducesNoCapture() {
+  var machine = TriggerMachine(mode: .squint)
+
+  #expect(machine.handle(.squint(0.0)) == [])
+  #expect(machine.state == .idle)
+}
+
+@Test func modifierModeIgnoresSquintInput() {
+  var machine = TriggerMachine(mode: .modifierHeld)
+
+  #expect(machine.handle(.gaze(CGPoint(x: 6, y: 8), 0.0)) == [])
+  #expect(machine.handle(.squint(0.1)) == [])
+  #expect(machine.state == .idle)
+}
+
+@Test func squintModeIgnoresBlinkInput() {
+  var machine = TriggerMachine(mode: .squint)
+
+  #expect(machine.handle(.gaze(CGPoint(x: 6, y: 8), 0.0)) == [])
+  #expect(machine.handle(.blink(.doubleBlink, 0.1)) == [])
+  #expect(machine.state == .idle)
+}

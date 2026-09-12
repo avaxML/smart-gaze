@@ -44,6 +44,7 @@ actor GazeCoordinator {
     ProcessInfo.processInfo.environment["SMART_GAZE_TRACE_GAZE"] == nil ? 0 : 900
   private var faceLoss = FaceLossDebounce()
   private var blinkDetector = BlinkDetector()
+  private var squintDetector = SquintDetector()
   private var headPose = HeadPoseGate()
   private let calibration: CalibrationMap?
   private let headTranslation: HeadTranslationCorrection?
@@ -207,8 +208,12 @@ actor GazeCoordinator {
     guard let observation else { return }
     let left = eyeAspectRatio(observation.leftEye)
     let right = eyeAspectRatio(observation.rightEye)
-    guard let event = blinkDetector.add(left: left, right: right, at: timestamp) else { return }
-    await apply(tracking.handle(.blink(event, timestamp)))
+    if let event = blinkDetector.add(left: left, right: right, at: timestamp) {
+      await apply(tracking.handle(.blink(event, timestamp)))
+    }
+    if squintDetector.add(left: left, right: right, at: timestamp) {
+      await apply(tracking.handle(.squint(timestamp)))
+    }
   }
 
   // MARK: - Global modifier input
