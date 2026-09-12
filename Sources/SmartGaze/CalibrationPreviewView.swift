@@ -11,9 +11,7 @@ struct CalibrationPreviewView: View {
   var body: some View {
     Form {
       calibrationSection
-      sourceSection
-      targetSection
-      telemetrySection
+      targetTelemetrySection
       explanationSection
     }
     .formStyle(.grouped)
@@ -39,6 +37,9 @@ struct CalibrationPreviewView: View {
       set: { model.setPointerSimulationEnabled($0) })
   }
 
+  /// One card holds the primary action, the source picker and every source
+  /// detail, so the target and its live telemetry start high enough to fit the
+  /// default 800x600 window without scrolling.
   private var calibrationSection: some View {
     Section {
       HStack(spacing: 12) {
@@ -58,24 +59,6 @@ struct CalibrationPreviewView: View {
           .help("Send the visible sample code to the provider and show the returned explanation.")
       }
 
-      Label(model.calibrationStatusMessage, systemImage: "target")
-        .font(.callout)
-        .foregroundStyle(.secondary)
-        .fixedSize(horizontal: false, vertical: true)
-
-      if let message = model.explanationAvailabilityMessage {
-        Label(message, systemImage: "info.circle")
-          .font(.callout)
-          .foregroundStyle(.secondary)
-          .fixedSize(horizontal: false, vertical: true)
-      }
-    } header: {
-      Text("Calibration")
-    }
-  }
-
-  private var sourceSection: some View {
-    Section {
       LabeledContent("Preview source") {
         Picker("Preview source", selection: sourceBinding) {
           ForEach(CalibrationPreviewModel.Source.allCases) { source in
@@ -89,8 +72,20 @@ struct CalibrationPreviewView: View {
       }
 
       sourceDetails
+
+      Label(model.calibrationStatusMessage, systemImage: "target")
+        .font(.callout)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+
+      if let message = model.explanationAvailabilityMessage {
+        Label(message, systemImage: "info.circle")
+          .font(.callout)
+          .foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
     } header: {
-      Text("Source")
+      Text("Calibration")
     } footer: {
       sourceFooter
     }
@@ -116,9 +111,8 @@ struct CalibrationPreviewView: View {
       )
       .help("Feed the trigger pipeline from the real pointer instead of camera gaze.")
       if model.isPointerSimulationEnabled {
-        LabeledContent("Activation mode", value: modeLabel)
-        HStack {
-          Spacer()
+        HStack(spacing: 12) {
+          LabeledContent("Activation mode", value: modeLabel)
           Button("Reset") { model.resetPreview() }
             .help("Clear the sample history and return the trigger to idle.")
         }
@@ -149,9 +143,15 @@ struct CalibrationPreviewView: View {
     }
   }
 
-  private var targetSection: some View {
+  /// Target and telemetry sit side by side so the reader can hover the reticle
+  /// and watch the trigger pipeline react in the same glance.
+  private var targetTelemetrySection: some View {
     Section {
-      targetArea
+      HStack(alignment: .top, spacing: 16) {
+        targetArea
+        telemetryPanel
+          .frame(width: 300, alignment: .topLeading)
+      }
     } header: {
       Text("Target")
     }
@@ -199,7 +199,7 @@ struct CalibrationPreviewView: View {
       .onAppear { model.updateTargetSize(proxy.size) }
       .onChange(of: proxy.size) { _, size in model.updateTargetSize(size) }
     }
-    .frame(height: 220)
+    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 280, maxHeight: 280)
   }
 
   private var targetReticle: some View {
@@ -210,8 +210,10 @@ struct CalibrationPreviewView: View {
     .accessibilityLabel("Target to look at")
   }
 
-  private var telemetrySection: some View {
-    Section {
+  private var telemetryPanel: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("Why it triggers")
+        .font(.subheadline.weight(.semibold))
       telemetryRow("Mode", modeLabel)
       telemetryRow("Source", model.selectedSource.title)
       telemetryRow("Tracking", trackingDescription)
@@ -232,9 +234,9 @@ struct CalibrationPreviewView: View {
         .font(.caption)
         .monospacedDigit()
         .foregroundStyle(.secondary)
-    } header: {
-      Text("Why it triggers")
     }
+    .padding(12)
+    .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
   }
 
   private func telemetryRow(_ label: String, _ value: String) -> some View {
@@ -302,12 +304,8 @@ struct CalibrationPreviewView: View {
   private var explanationContent: some View {
     switch model.explanation {
     case .idle:
-      ContentUnavailableView(
-        "No explanation requested yet",
-        systemImage: "text.bubble",
-        description: Text(
-          "Use Test Explanation to render the visible sample code and ask the provider.")
-      )
+      Text("No explanation requested yet.")
+        .foregroundStyle(.secondary)
     case .loading:
       HStack(spacing: 8) {
         ProgressView().controlSize(.small)
