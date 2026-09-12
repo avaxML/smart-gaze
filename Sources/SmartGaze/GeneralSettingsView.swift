@@ -12,11 +12,14 @@ struct GeneralSettingsView: View {
             Text(activationLabel(mode)).tag(mode)
           }
         }
+        .help("How a capture starts: hold a key, dwell on a region, or blink twice.")
+
         Picker("Modifier key", selection: model.modifierKeyBinding()) {
           ForEach(ModifierKey.allCases, id: \.self) { key in
             Text(key.rawValue.capitalized).tag(key)
           }
         }
+        .help("The key to hold while aiming, in Modifier held mode.")
       }
 
       Section {
@@ -30,7 +33,7 @@ struct GeneralSettingsView: View {
         Text("Dwell")
       } footer: {
         Text(
-          "Dwell time is how long your gaze must hold still before an action triggers. Dispersion threshold is how far your gaze can wander, in screen points, and still count as holding still. Lower is stricter, higher tolerates more eye jitter."
+          "Dwell time is how long your gaze must hold still before triggering. Dispersion threshold is how far it may wander, in screen points, and still count as still."
         )
       }
 
@@ -44,7 +47,7 @@ struct GeneralSettingsView: View {
       } header: {
         Text("Bubble")
       } footer: {
-        Text("Controls how large the on-screen explanation bubble is allowed to grow, in points.")
+        Text("Controls how large the on-screen explanation bubble may grow, in points.")
       }
     }
     .formStyle(.grouped)
@@ -55,17 +58,27 @@ struct GeneralSettingsView: View {
     unit: String, fractionDigits: Int
   ) -> some View {
     VStack(alignment: .leading, spacing: 4) {
-      HStack {
+      HStack(spacing: 12) {
         Text(title)
-        Spacer()
-        Text(
-          "\(value.wrappedValue.formatted(.number.precision(.fractionLength(fractionDigits)))) \(unit)"
-        )
-        .monospacedDigit()
-        .foregroundStyle(.secondary)
+        Spacer(minLength: 12)
+        Text(measurement(value.wrappedValue, digits: fractionDigits, unit: unit))
+          .monospacedDigit()
+          .foregroundStyle(.secondary)
       }
       Slider(value: value, in: range, step: step)
+        .labelsHidden()
+      HStack(spacing: 12) {
+        Text(measurement(range.lowerBound, digits: fractionDigits, unit: unit))
+        Spacer(minLength: 12)
+        Text(measurement(range.upperBound, digits: fractionDigits, unit: unit))
+      }
+      .font(.caption)
+      .foregroundStyle(.tertiary)
     }
+  }
+
+  private func measurement(_ value: Double, digits: Int, unit: String) -> String {
+    "\(value.formatted(.number.precision(.fractionLength(digits)))) \(unit)"
   }
 
   private func activationLabel(_ mode: ActivationMode) -> String {
