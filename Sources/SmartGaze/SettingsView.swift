@@ -1,43 +1,66 @@
+import Combine
 import GazeKit
 import SwiftUI
+
+enum SettingsTab: Int, CaseIterable {
+  case general, preview, provider, privacy
+
+  var title: String {
+    switch self {
+    case .general: "General"
+    case .preview: "Calibration & Preview"
+    case .provider: "Provider"
+    case .privacy: "Privacy"
+    }
+  }
+
+  var symbolName: String {
+    switch self {
+    case .general: "gear"
+    case .preview: "eye"
+    case .provider: "brain"
+    case .privacy: "hand.raised"
+    }
+  }
+}
+
+@MainActor
+final class SettingsTabSelection: ObservableObject {
+  @Published var tab: SettingsTab = .general
+}
 
 struct SettingsView: View {
   @ObservedObject var model: SettingsModel
   var preview: CalibrationPreviewModel
-  @State private var selectedTab = Tab.general
-
-  private enum Tab: Hashable {
-    case general, preview, provider, privacy
-  }
+  @ObservedObject var selection: SettingsTabSelection
 
   var body: some View {
     VStack(spacing: 0) {
       if let error = model.persistenceError {
-        GroupBox {
-          Label(error, systemImage: "exclamationmark.triangle.fill")
+        Label {
+          Text(error)
+            .font(.callout)
+            .fixedSize(horizontal: false, vertical: true)
+        } icon: {
+          Image(systemName: "exclamationmark.triangle.fill")
             .foregroundStyle(.orange)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+        .overlay {
+          RoundedRectangle(cornerRadius: 8)
+            .strokeBorder(.orange.opacity(0.35))
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)
       }
-      TabView(selection: $selectedTab) {
-        GeneralSettingsView(model: model)
-          .tabItem { Label("General", systemImage: "gear") }
-          .tag(Tab.general)
-        CalibrationPreviewView(model: preview)
-          .tabItem { Label("Calibration & Preview", systemImage: "eye") }
-          .tag(Tab.preview)
-        ProviderSettingsView(model: model)
-          .tabItem { Label("Provider", systemImage: "brain") }
-          .tag(Tab.provider)
-        PrivacySettingsView(model: model)
-          .tabItem { Label("Privacy", systemImage: "hand.raised") }
-          .tag(Tab.privacy)
-      }
+
+      content
     }
-    .frame(minWidth: 760, minHeight: 400)
-    .onChange(of: selectedTab) { _, tab in
+    .frame(minWidth: 760, minHeight: 520)
+    .onChange(of: selection.tab) { _, tab in
       if tab == .preview {
         preview.prepareForPresentation(from: model)
       } else {
@@ -45,12 +68,26 @@ struct SettingsView: View {
       }
     }
     .onAppear {
-      if selectedTab == .preview {
+      if selection.tab == .preview {
         preview.prepareForPresentation(from: model)
       }
     }
     .onChange(of: model.settings) { _, settings in
       preview.applyConfiguration(from: settings)
+    }
+  }
+
+  @ViewBuilder
+  private var content: some View {
+    switch selection.tab {
+    case .general:
+      GeneralSettingsView(model: model)
+    case .preview:
+      CalibrationPreviewView(model: preview)
+    case .provider:
+      ProviderSettingsView(model: model)
+    case .privacy:
+      PrivacySettingsView(model: model)
     }
   }
 }

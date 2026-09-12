@@ -66,7 +66,7 @@ enum SettingsScreenshotHarness {
       for appearanceName in [NSAppearance.Name.aqua, .darkAqua] {
         window.appearance = NSAppearance(named: appearanceName)
         try? await Task.sleep(for: .milliseconds(400))
-        selectTab(at: index, in: window)
+        selectTab(at: index, in: windowController)
         try? await Task.sleep(for: .milliseconds(600))
         window.layoutIfNeeded()
         window.displayIfNeeded()
@@ -79,29 +79,17 @@ enum SettingsScreenshotHarness {
     exit(0)
   }
 
-  /// `SettingsView` owns its tab selection in `@State` and another lane owns
-  /// that file, so the harness drives the `NSTabView` that backs SwiftUI's
-  /// `TabView` instead of a published selection.
-  private static func selectTab(at index: Int, in window: NSWindow) {
-    guard let tabView = findTabView(in: window.contentView) else { return }
-    tabView.selectTabViewItem(at: index)
+  /// `SettingsView` renders its tabs through the window toolbar rather than a
+  /// SwiftUI `TabView`, so the harness asks the controller to select a tab.
+  private static func selectTab(at index: Int, in windowController: SettingsWindowController) {
+    windowController.selectTab(at: index)
   }
 
-  private static func findTabView(in view: NSView?) -> NSTabView? {
-    guard let view else { return nil }
-    if let tabView = view as? NSTabView, tabView.numberOfTabViewItems == tabs.count {
-      return tabView
-    }
-    for subview in view.subviews {
-      if let found = findTabView(in: subview) { return found }
-    }
-    return nil
-  }
-
-  /// In-process drawing of the window's content so the harness needs no Screen
+  /// In-process drawing of the whole window, toolbar included, so a reviewer
+  /// sees the tab bar as well as the content and the harness needs no Screen
   /// Recording permission.
   private static func pngData(of window: NSWindow) -> Data? {
-    guard let view = window.contentView,
+    guard let view = window.contentView?.superview ?? window.contentView,
       let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds)
     else { return nil }
     view.cacheDisplay(in: view.bounds, to: rep)
