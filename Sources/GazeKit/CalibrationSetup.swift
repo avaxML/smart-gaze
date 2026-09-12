@@ -1,0 +1,129 @@
+import CoreGraphics
+import Foundation
+
+/// What the setup stage knows about the face in the current frame. Every point
+/// is a top-left normalized (0...1) coordinate in the unmirrored camera frame.
+public struct CalibrationSetupFace: Equatable, Sendable {
+  public let mesh: [CGPoint]
+  public let imageLeftEyeContour: [CGPoint]
+  public let imageRightEyeContour: [CGPoint]
+  public let imageLeftIris: [CGPoint]
+  public let imageRightIris: [CGPoint]
+  public let depthCentimetres: Double?
+
+  public init(
+    mesh: [CGPoint],
+    imageLeftEyeContour: [CGPoint],
+    imageRightEyeContour: [CGPoint],
+    imageLeftIris: [CGPoint],
+    imageRightIris: [CGPoint],
+    depthCentimetres: Double?
+  ) {
+    self.mesh = mesh
+    self.imageLeftEyeContour = imageLeftEyeContour
+    self.imageRightEyeContour = imageRightEyeContour
+    self.imageLeftIris = imageLeftIris
+    self.imageRightIris = imageRightIris
+    self.depthCentimetres = depthCentimetres
+  }
+
+  /// Mean of the mesh points. nil when mesh is empty.
+  public var center: CGPoint? {
+    guard !mesh.isEmpty else { return nil }
+    let total = mesh.reduce(CGPoint.zero) { CGPoint(x: $0.x + $1.x, y: $0.y + $1.y) }
+    let count = CGFloat(mesh.count)
+    return CGPoint(x: total.x / count, y: total.y / count)
+  }
+
+  /// The band the visor reveals: the bounding box of mesh points 33, 133, 362,
+  /// 263, 70, 300 (eye corners and brow ends) padded by 0.6 of its own height
+  /// above and below and 0.25 of its width on each side, clamped to 0...1. nil
+  /// when mesh has fewer than 468 points.
+  public var eyeBand: CGRect? {
+    guard mesh.count >= CanonicalFaceModel.vertexCount else { return nil }
+
+    let indices = [33, 133, 362, 263, 70, 300]
+    var minX = CGFloat.greatestFiniteMagnitude
+    var maxX = -CGFloat.greatestFiniteMagnitude
+    var minY = CGFloat.greatestFiniteMagnitude
+    var maxY = -CGFloat.greatestFiniteMagnitude
+    for index in indices {
+      let point = mesh[index]
+      minX = min(minX, point.x)
+      maxX = max(maxX, point.x)
+      minY = min(minY, point.y)
+      maxY = max(maxY, point.y)
+    }
+
+    let padX = 0.25 * (maxX - minX)
+    let padY = 0.6 * (maxY - minY)
+    let left = clamp(minX - padX)
+    let right = clamp(maxX + padX)
+    let top = clamp(minY - padY)
+    let bottom = clamp(maxY + padY)
+    return CGRect(x: left, y: top, width: right - left, height: bottom - top)
+  }
+
+  private func clamp(_ value: CGFloat) -> CGFloat {
+    min(max(value, 0), 1)
+  }
+}
+
+public enum CalibrationSetupGuidance: Equatable, Sendable {
+  case findingFace
+  case moveCloser
+  case moveBack
+  case centerFace(offsetX: Double, offsetY: Double)
+  case holdStill(progress: Double)
+  case ready
+}
+
+/// Decides what to tell the user from a stream of faces. Pure and clock-driven,
+/// so tests pass explicit times.
+public struct CalibrationSetupReducer: Equatable, Sendable {
+  public static let depthRange: ClosedRange<Double> = 45...75
+  public static let centerTolerance = 0.12
+  public static let holdDuration: TimeInterval = 1.0
+
+  private var holdStart: TimeInterval?
+
+  public init() {}
+
+  public mutating func update(face: CalibrationSetupFace?, at time: TimeInterval)
+    -> CalibrationSetupGuidance
+  {
+    guard let face, !face.mesh.isEmpty else {
+      holdStart = nil
+      return .findingFace
+    }
+
+    if let depth = face.depthCentimetres {
+      if depth < Self.depthRange.lowerBound {
+        holdStart = nil
+        return .moveBack
+      }
+      if depth > Self.depthRange.upperBound {
+        holdStart = nil
+        return .moveCloser
+      }
+    }
+
+    guard let center = face.center else {
+      holdStart = nil
+      return .findingFace
+    }
+    let offsetX = Double(center.x) - 0.5
+    let offsetY = Double(center.y) - 0.5
+    guard abs(offsetX) <= Self.centerTolerance, abs(offsetY) <= Self.centerTolerance else {
+      holdStart = nil
+      return .centerFace(offsetX: offsetX, offsetY: offsetY)
+    }
+
+    guard let start = holdStart else {
+      holdStart = time
+      return .holdStill(progress: 0)
+    }
+    let progress = min(max((time - start) / Self.holdDuration, 0), 1)
+    return progress >= 1 ? .ready : .holdStill(progress: progress)
+  }
+}
