@@ -1,9 +1,9 @@
 import CoreGraphics
 import Foundation
-import GazeKit
 import Perception
 import Testing
 
+@testable import GazeKit
 @testable import SmartGaze
 
 private let testBounds = CGRect(x: 0, y: 0, width: 1000, height: 800)
@@ -160,7 +160,8 @@ private func solveCalibrationFixture(scale: Double = 1) throws -> CalibrationMap
     gaze: NormalizedGazePoint(x: 0, y: 0),
     faceDistanceCentimeters: 50,
     iris: IrisEstimate(imageLeftEye: leftEye, imageRightEye: rightEye, depthCentimetres: 61.5),
-    meshLandmarks: mesh)
+    meshLandmarks: mesh,
+    meshDepth: (0..<468).map { Double($0) / 468 })
 
   let face = CalibrationCoordinator.setupFace(from: estimate)
 
@@ -170,6 +171,36 @@ private func solveCalibrationFixture(scale: Double = 1) throws -> CalibrationMap
   #expect(face.imageLeftIris.count == 5)
   #expect(face.imageRightIris.count == 5)
   #expect(face.depthCentimetres == 61.5)
+  #expect(face.meshDepth.count == 468)
+}
+
+@Test func setupFaceCarriesRotationAndTheEyeAspectRatios() throws {
+  var mesh = [CGPoint](repeating: CGPoint(x: 0.5, y: 0.5), count: 468)
+  func place(_ index: Int, _ x: Double, _ y: Double) {
+    mesh[index] = CGPoint(x: x, y: y)
+  }
+  place(33, 0.30, 0.50)
+  place(133, 0.50, 0.50)
+  for index in [7, 163, 246, 173, 157, 158] { place(index, 0.40, 0.44) }
+  for index in [144, 145, 153, 154, 155, 159, 160, 161] { place(index, 0.40, 0.56) }
+  place(263, 0.50, 0.50)
+  place(362, 0.70, 0.50)
+  for index in [249, 390, 398, 384, 385, 386] { place(index, 0.60, 0.44) }
+  for index in [373, 374, 380, 381, 382, 387, 388, 466] { place(index, 0.60, 0.56) }
+
+  let rotation = RigidRotation(matrix: (SIMD3(1, 0, 0), SIMD3(0, 1, 0), SIMD3(0, 0, 1)))
+  let estimate = GazeEstimate(
+    gaze: NormalizedGazePoint(x: 0, y: 0),
+    faceDistanceCentimeters: 50,
+    meshLandmarks: mesh,
+    headRotation: rotation)
+
+  let face = CalibrationCoordinator.setupFace(from: estimate)
+
+  #expect(face.rotation == rotation)
+  let ratios = try #require(face.eyeAspectRatios)
+  #expect(abs(ratios.left - 0.6) <= 1e-9)
+  #expect(abs(ratios.right - 0.6) <= 1e-9)
 }
 
 @Test func setupFaceUsesEmptyContoursAndTheBaselineDepthWithoutIris() {
@@ -186,4 +217,5 @@ private func solveCalibrationFixture(scale: Double = 1) throws -> CalibrationMap
   #expect(face.imageLeftIris.isEmpty)
   #expect(face.imageRightIris.isEmpty)
   #expect(face.depthCentimetres == 52.5)
+  #expect(face.eyeAspectRatios == nil)
 }

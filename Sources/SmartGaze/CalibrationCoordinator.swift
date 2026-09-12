@@ -112,7 +112,34 @@ final class CalibrationCoordinator {
       imageRightEyeContour: estimate.iris?.imageRightEye.contour ?? [],
       imageLeftIris: estimate.iris?.imageLeftEye.irisPoints ?? [],
       imageRightIris: estimate.iris?.imageRightEye.irisPoints ?? [],
-      depthCentimetres: estimate.iris?.depthCentimetres ?? estimate.faceDistanceCentimeters)
+      depthCentimetres: estimate.iris?.depthCentimetres ?? estimate.faceDistanceCentimeters,
+      meshDepth: estimate.meshDepth,
+      rotation: estimate.headRotation,
+      eyeAspectRatios: eyeAspectRatios(mesh: estimate.meshLandmarks))
+  }
+
+  /// MediaPipe's eye-outline landmarks, image-left then image-right, the
+  /// contour `eyeLandmarks(fromContour:)` reduces to six points.
+  private nonisolated static let imageLeftEyeContourIndices = [
+    33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246,
+  ]
+  private nonisolated static let imageRightEyeContourIndices = [
+    263, 249, 390, 373, 374, 380, 381, 382, 362, 398, 384, 385, 386, 387, 388, 466,
+  ]
+
+  private nonisolated static func eyeAspectRatios(mesh: [CGPoint]) -> (left: Double, right: Double)?
+  {
+    guard mesh.count >= CanonicalFaceModel.vertexCount else { return nil }
+    func ratio(_ indices: [Int]) -> Double? {
+      guard let landmarks = try? eyeLandmarks(fromContour: indices.map { mesh[$0] }) else {
+        return nil
+      }
+      return eyeAspectRatio(landmarks)
+    }
+    guard let left = ratio(imageLeftEyeContourIndices),
+      let right = ratio(imageRightEyeContourIndices)
+    else { return nil }
+    return (left: left, right: right)
   }
 
   private nonisolated static func guidanceName(_ guidance: CalibrationSetupGuidance) -> String {

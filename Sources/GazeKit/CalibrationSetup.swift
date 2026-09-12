@@ -10,6 +10,15 @@ public struct CalibrationSetupFace: Equatable, Sendable {
   public let imageLeftIris: [CGPoint]
   public let imageRightIris: [CGPoint]
   public let depthCentimetres: Double?
+  /// The mesh landmarks' `z` divided by the frame width, one per mesh point,
+  /// in the mesh's own normalized units. Empty when the pipeline did not
+  /// provide a depth.
+  public let meshDepth: [Double]
+  /// The head rotation the pipeline fitted this frame, `nil` without one.
+  public let rotation: RigidRotation?
+  /// Each eye's aspect ratio from `eyeAspectRatio`, image-left then
+  /// image-right. `nil` when either eye's contour could not be read.
+  public let eyeAspectRatios: (left: Double, right: Double)?
 
   public init(
     mesh: [CGPoint],
@@ -17,7 +26,10 @@ public struct CalibrationSetupFace: Equatable, Sendable {
     imageRightEyeContour: [CGPoint],
     imageLeftIris: [CGPoint],
     imageRightIris: [CGPoint],
-    depthCentimetres: Double?
+    depthCentimetres: Double?,
+    meshDepth: [Double] = [],
+    rotation: RigidRotation? = nil,
+    eyeAspectRatios: (left: Double, right: Double)? = nil
   ) {
     self.mesh = mesh
     self.imageLeftEyeContour = imageLeftEyeContour
@@ -25,6 +37,23 @@ public struct CalibrationSetupFace: Equatable, Sendable {
     self.imageLeftIris = imageLeftIris
     self.imageRightIris = imageRightIris
     self.depthCentimetres = depthCentimetres
+    self.meshDepth = meshDepth
+    self.rotation = rotation
+    self.eyeAspectRatios = eyeAspectRatios
+  }
+
+  /// The tuple's values cannot be synthesized, so equality is written out.
+  public static func == (lhs: CalibrationSetupFace, rhs: CalibrationSetupFace) -> Bool {
+    lhs.mesh == rhs.mesh
+      && lhs.imageLeftEyeContour == rhs.imageLeftEyeContour
+      && lhs.imageRightEyeContour == rhs.imageRightEyeContour
+      && lhs.imageLeftIris == rhs.imageLeftIris
+      && lhs.imageRightIris == rhs.imageRightIris
+      && lhs.depthCentimetres == rhs.depthCentimetres
+      && lhs.meshDepth == rhs.meshDepth
+      && lhs.rotation == rhs.rotation
+      && lhs.eyeAspectRatios?.left == rhs.eyeAspectRatios?.left
+      && lhs.eyeAspectRatios?.right == rhs.eyeAspectRatios?.right
   }
 
   /// Mean of the mesh points. nil when mesh is empty.

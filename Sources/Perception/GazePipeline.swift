@@ -32,6 +32,11 @@ public struct GazeEstimate: Equatable, Sendable {
   /// The face-mesh landmarks, 468 top-left normalized frame points, for a
   /// consumer that draws the mesh itself.
   public let meshLandmarks: [CGPoint]
+  /// Each mesh landmark's `z` divided by the frame width, one per landmark.
+  public let meshDepth: [Double]
+  /// The rigid head rotation the pipeline fitted this frame, `nil` only when
+  /// a caller constructs an estimate without one.
+  public let headRotation: RigidRotation?
   /// The interpupillary distance the eye-baseline depth was scaled by, so a
   /// consumer can compute the user's implied value with `InterpupillaryFit`.
   public let assumedInterpupillaryCentimetres: Double
@@ -41,6 +46,7 @@ public struct GazeEstimate: Equatable, Sendable {
     headPitchRadians: Double = 0, faceOriginCentimeters: SIMD3<Double> = .zero,
     cropRotationRadians: Double = 0, usedTrackedCrop: Bool = false,
     iris: IrisEstimate? = nil, meshLandmarks: [CGPoint] = [],
+    meshDepth: [Double] = [], headRotation: RigidRotation? = nil,
     assumedInterpupillaryCentimetres: Double = defaultInterpupillaryCentimetres
   ) {
     self.gaze = gaze
@@ -52,6 +58,8 @@ public struct GazeEstimate: Equatable, Sendable {
     self.usedTrackedCrop = usedTrackedCrop
     self.iris = iris
     self.meshLandmarks = meshLandmarks
+    self.meshDepth = meshDepth
+    self.headRotation = headRotation
     self.assumedInterpupillaryCentimetres = assumedInterpupillaryCentimetres
   }
 }
@@ -252,6 +260,8 @@ public actor GazePipeline {
       faceOriginCentimeters: headPose.faceOrigin.centimetres,
       cropRotationRadians: crop.rotationRadians, usedTrackedCrop: usedTrackedCrop,
       iris: iris, meshLandmarks: fullFrame.normalized,
+      meshDepth: fullFrame.pixelSpace.map { $0.z / Double(frameSize.width) },
+      headRotation: headPose.rotation,
       assumedInterpupillaryCentimetres: interpupillaryCentimetres)
   }
 

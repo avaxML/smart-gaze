@@ -11,7 +11,7 @@ private let renderWidth = 1728
 private let renderHeight = 1117
 
 private enum SyntheticSetup {
-  static func face() -> CalibrationSetupFace {
+  static func face(meshDepth: [Double] = []) -> CalibrationSetupFace {
     var mesh = (0..<468).map { index -> CGPoint in
       let angle = 2 * Double.pi * Double(index) / 468
       return CGPoint(x: 0.5 + 0.15 * cos(angle), y: 0.5 + 0.225 * sin(angle))
@@ -51,7 +51,8 @@ private enum SyntheticSetup {
       imageRightEyeContour: ellipse(center: rightEye, radiusX: 0.055, radiusY: 0.03),
       imageLeftIris: iris(center: leftEye, radius: 0.014),
       imageRightIris: iris(center: rightEye, radius: 0.014),
-      depthCentimetres: 60)
+      depthCentimetres: 60,
+      meshDepth: meshDepth)
   }
 
   static func image() -> CGImage {
@@ -98,6 +99,28 @@ private func rgbaPixels(_ image: CGImage) -> [UInt8] {
 private func isBlack(_ pixels: [UInt8], width: Int, x: Int, y: Int) -> Bool {
   let offset = (y * width + x) * 4
   return pixels[offset] == 0 && pixels[offset + 1] == 0 && pixels[offset + 2] == 0
+}
+
+private func luminance(_ pixels: [UInt8], width: Int, x: Int, y: Int) -> Int {
+  let offset = (y * width + x) * 4
+  return (Int(pixels[offset]) + Int(pixels[offset + 1]) + Int(pixels[offset + 2])) / 3
+}
+
+private func maxLuminance(
+  _ pixels: [UInt8], width: Int, height: Int, centerX: Int, centerY: Int, radius: Int
+) -> Int {
+  let minX = max(0, centerX - radius)
+  let maxX = min(width - 1, centerX + radius)
+  let minY = max(0, centerY - radius)
+  let maxY = min(height - 1, centerY + radius)
+  guard minX <= maxX, minY <= maxY else { return 0 }
+  var best = 0
+  for y in minY...maxY {
+    for x in minX...maxX {
+      best = max(best, luminance(pixels, width: width, x: x, y: y))
+    }
+  }
+  return best
 }
 
 private func writePNG(_ image: CGImage, named name: String, to directory: URL) throws {
@@ -149,8 +172,62 @@ private func writePNG(_ image: CGImage, named name: String, to directory: URL) t
   }
 }
 
+@MainActor
 @Test func setupViewUsesTheGuidanceTitleTrackingConstant() {
   #expect(CalibrationSetupView.guidanceTitleTracking == -0.01)
+}
+
+@MainActor
+@Test func setupViewShadesNearMeshPointsBrighterThanFarOnes() throws {
+  var depths = [Double](repeating: 0, count: 468)
+  depths[133] = -0.02
+  let face = SyntheticSetup.face(meshDepth: depths)
+  let band = try #require(face.eyeBand)
+  let frameSize = CGSize(width: 1280, height: 720)
+
+  let visorWidth = CGFloat(renderWidth) * CalibrationSetupView.visorWidthRatio
+  let visorHeight = visorWidth / CalibrationSetupView.visorAspectRatio
+  let visorSize = CGSize(width: visorWidth, height: visorHeight)
+  let visorCenterY = CGFloat(renderHeight) * CalibrationSetupView.visorCenterYRatio
+
+  let renderer = ImageRenderer(
+    content: CalibrationSetupView(
+      face: face, image: nil, guidance: .ready, frameSize: frameSize))
+  renderer.scale = 1
+  renderer.proposedSize = ProposedViewSize(
+    width: CGFloat(renderWidth), height: CGFloat(renderHeight))
+  let rendered = try #require(renderer.cgImage)
+  let pixels = rgbaPixels(rendered)
+  if let renderDirectory = ProcessInfo.processInfo.environment["SMART_GAZE_SETUP_RENDER_DIR"]
+    .map({ URL(fileURLWithPath: $0) })
+  {
+    try writePNG(rendered, named: "depthShading", to: renderDirectory)
+  }
+
+  // Nose bridge is mesh 133 at (0.44, 0.56), the cheek is mesh 234 at
+  // (0.35, 0.50); the near point (mesh 133) shades brighter. The mesh draws
+  // mirrored, so the on-screen x is the visor's width minus the projected x.
+  func renderPixel(_ meshIndex: Int) -> (x: Int, y: Int) {
+    let local = CalibrationSetupView.project(
+      face.mesh[meshIndex], band: band, frameSize: frameSize, visorSize: visorSize)
+    return (
+      x: Int((CGFloat(renderWidth) / 2 + visorSize.width / 2 - local.x).rounded()),
+      y: Int((visorCenterY + (local.y - visorSize.height / 2)).rounded())
+    )
+  }
+
+  let noseBridge = renderPixel(133)
+  let cheek = renderPixel(234)
+  let noseBrightness = maxLuminance(
+    pixels, width: renderWidth, height: renderHeight, centerX: noseBridge.x,
+    centerY: noseBridge.y, radius: 3)
+  let cheekBrightness = maxLuminance(
+    pixels, width: renderWidth, height: renderHeight, centerX: cheek.x, centerY: cheek.y,
+    radius: 3)
+  #expect(
+    noseBrightness > cheekBrightness,
+    "nose \(noseBrightness) at \(noseBridge) is not brighter than cheek \(cheekBrightness) at \(cheek)"
+  )
 }
 
 @Test func setupViewProjectsTheBandWithAspectFill() {
