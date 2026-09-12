@@ -148,3 +148,12 @@ private func writePNG(_ image: CGImage, named name: String, to directory: URL) t
     }
   }
 }
+
+@Test func setupViewProjectsTheBandWithAspectFill() {
+  let projected = CalibrationSetupView.project(
+    CGPoint(x: 0.5, y: 0.5),
+    band: CGRect(x: 0.25, y: 0.25, width: 0.25, height: 0.25),
+    frameSize: CGSize(width: 1280, height: 720),
+    visorSize: CGSize(width: 400, height: 200))
+  #expect(projected == CGPoint(x: 400, y: 212.5))
+}

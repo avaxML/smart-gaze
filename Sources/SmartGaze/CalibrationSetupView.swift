@@ -120,14 +120,18 @@ struct CalibrationSetupView: View {
 
   private func draw(in context: GraphicsContext, size: CGSize) {
     let band = face?.eyeBand ?? CGRect(x: 0, y: 0, width: 1, height: 1)
-    guard band.width > 0, band.height > 0 else { return }
+    guard band.width > 0, band.height > 0, frameSize.width > 0, frameSize.height > 0 else {
+      return
+    }
 
     var mirrored = context
     mirrored.translateBy(x: size.width, y: 0)
     mirrored.scaleBy(x: -1, y: 1)
 
     if let image {
-      mirrored.draw(Image(decorative: image, scale: 1), in: imageRect(band: band, size: size))
+      mirrored.draw(
+        Image(decorative: image, scale: 1),
+        in: Self.imageRect(band: band, frameSize: frameSize, visorSize: size))
     }
 
     let visor = Path(CGRect(origin: .zero, size: size))
@@ -145,32 +149,43 @@ struct CalibrationSetupView: View {
     draw(iris: face.imageLeftIris, band: band, size: size, in: mirrored)
   }
 
-  private func imageRect(band: CGRect, size: CGSize) -> CGRect {
-    if face?.eyeBand != nil {
-      return CGRect(
-        x: -band.minX / band.width * size.width,
-        y: -band.minY / band.height * size.height,
-        width: size.width / band.width,
-        height: size.height / band.height
-      )
-    }
-    guard frameSize.width > 0, frameSize.height > 0 else {
-      return CGRect(origin: .zero, size: size)
-    }
-    let scale = max(size.width / frameSize.width, size.height / frameSize.height)
-    let displayed = CGSize(width: frameSize.width * scale, height: frameSize.height * scale)
-    return CGRect(
-      x: (size.width - displayed.width) / 2,
-      y: (size.height - displayed.height) / 2,
-      width: displayed.width,
-      height: displayed.height
+  nonisolated private static func pixelBand(_ band: CGRect, frameSize: CGSize) -> CGRect {
+    CGRect(
+      x: band.minX * frameSize.width,
+      y: band.minY * frameSize.height,
+      width: band.width * frameSize.width,
+      height: band.height * frameSize.height
     )
   }
 
-  private func project(_ point: CGPoint, band: CGRect, size: CGSize) -> CGPoint {
-    CGPoint(
-      x: (point.x - band.minX) / band.width * size.width,
-      y: (point.y - band.minY) / band.height * size.height
+  nonisolated private static func aspectFillScale(
+    band: CGRect, frameSize: CGSize, visorSize: CGSize
+  ) -> CGFloat {
+    let bandPixels = pixelBand(band, frameSize: frameSize)
+    return max(visorSize.width / bandPixels.width, visorSize.height / bandPixels.height)
+  }
+
+  nonisolated static func project(
+    _ point: CGPoint, band: CGRect, frameSize: CGSize, visorSize: CGSize
+  ) -> CGPoint {
+    let bandPixels = pixelBand(band, frameSize: frameSize)
+    let scale = aspectFillScale(band: band, frameSize: frameSize, visorSize: visorSize)
+    return CGPoint(
+      x: visorSize.width / 2 + (point.x * frameSize.width - bandPixels.midX) * scale,
+      y: visorSize.height / 2 + (point.y * frameSize.height - bandPixels.midY) * scale
+    )
+  }
+
+  nonisolated private static func imageRect(
+    band: CGRect, frameSize: CGSize, visorSize: CGSize
+  ) -> CGRect {
+    let bandPixels = pixelBand(band, frameSize: frameSize)
+    let scale = aspectFillScale(band: band, frameSize: frameSize, visorSize: visorSize)
+    return CGRect(
+      x: visorSize.width / 2 - bandPixels.midX * scale,
+      y: visorSize.height / 2 - bandPixels.midY * scale,
+      width: frameSize.width * scale,
+      height: frameSize.height * scale
     )
   }
 
@@ -184,10 +199,14 @@ struct CalibrationSetupView: View {
     for point in mesh {
       let alpha = dotAlpha(position: Double(point.x - minX) / span)
       guard alpha > 0.004 else { continue }
-      let projected = project(point, band: band, size: size)
-      let rect = CGRect(x: projected.x - 0.75, y: projected.y - 0.75, width: 1.5, height: 1.5)
-      context.fill(Path(ellipseIn: rect), with: .color(.white.opacity(0.55 * alpha)))
+      let projected = Self.project(point, band: band, frameSize: frameSize, visorSize: size)
+      drawDot(at: projected, opacity: 0.55 * alpha, in: context)
     }
+  }
+
+  private func drawDot(at point: CGPoint, opacity: Double, in context: GraphicsContext) {
+    let rect = CGRect(x: point.x - 0.75, y: point.y - 0.75, width: 1.5, height: 1.5)
+    context.fill(Path(ellipseIn: rect), with: .color(.white.opacity(opacity)))
   }
 
   private func dotAlpha(position: Double) -> Double {
@@ -199,28 +218,30 @@ struct CalibrationSetupView: View {
   private func draw(
     contour: [CGPoint], band: CGRect, size: CGSize, in context: GraphicsContext
   ) {
-    guard contour.count >= 2 else { return }
-    var path = Path()
-    path.addLines(contour.map { project($0, band: band, size: size) })
-    path.closeSubpath()
-    context.stroke(path, with: .color(.white.opacity(0.8 * reveal)), lineWidth: 1)
+    for point in contour {
+      let projected = Self.project(point, band: band, frameSize: frameSize, visorSize: size)
+      drawDot(at: projected, opacity: 0.8 * reveal, in: context)
+    }
   }
 
   private func draw(
     iris: [CGPoint], band: CGRect, size: CGSize, in context: GraphicsContext
   ) {
     guard iris.count >= 5 else { return }
-    let center = project(iris[0], band: band, size: size)
-    let rim = iris.dropFirst().prefix(4).map { project($0, band: band, size: size) }
+    let center = Self.project(iris[0], band: band, frameSize: frameSize, visorSize: size)
+    let rim = iris.dropFirst().prefix(4).map {
+      Self.project($0, band: band, frameSize: frameSize, visorSize: size)
+    }
     guard !rim.isEmpty else { return }
-    let radiusX = rim.map { abs(Double($0.x - center.x)) }.max() ?? 0
-    let radiusY = rim.map { abs(Double($0.y - center.y)) }.max() ?? 0
+    let radius =
+      rim.map { hypot(Double($0.x - center.x), Double($0.y - center.y)) }.reduce(0, +)
+      / Double(rim.count)
     let scale = 1 + 0.08 * pulse
     let ring = CGRect(
-      x: center.x - CGFloat(radiusX * scale),
-      y: center.y - CGFloat(radiusY * scale),
-      width: CGFloat(2 * radiusX * scale),
-      height: CGFloat(2 * radiusY * scale)
+      x: center.x - CGFloat(radius * scale),
+      y: center.y - CGFloat(radius * scale),
+      width: CGFloat(2 * radius * scale),
+      height: CGFloat(2 * radius * scale)
     )
     context.stroke(Path(ellipseIn: ring), with: .color(accent.opacity(reveal)), lineWidth: 1.5)
     let dot = CGRect(x: center.x - 1, y: center.y - 1, width: 2, height: 2)
