@@ -297,3 +297,70 @@ private func loadSettings(withStoredCalibration calibration: [String: Any]) thro
 
   #expect(decoded.headRotationCorrection == nil)
 }
+
+private func settingsObjectWithEveryKey() throws -> [String: Any] {
+  let data = try JSONEncoder().encode(Settings.default)
+  return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+}
+
+@Test func zeroInterpupillaryDistanceIsDroppedOnDecode() throws {
+  var object = try settingsObjectWithEveryKey()
+  object["interpupillaryCentimetres"] = 0
+  let data = try JSONSerialization.data(withJSONObject: object)
+
+  let decoded = try JSONDecoder().decode(Settings.self, from: data)
+
+  #expect(decoded.interpupillaryCentimetres == nil)
+}
+
+@Test func anAbsurdHeadRotationGainIsDroppedOnDecode() throws {
+  var object = try settingsObjectWithEveryKey()
+  object["headRotationCorrection"] = [
+    "referenceYawRadians": 0.0, "referencePitchRadians": 0.0,
+    "yawGainPointsPerRadian": 1e9, "pitchGainPointsPerRadian": 0.0,
+  ]
+  let data = try JSONSerialization.data(withJSONObject: object)
+
+  let decoded = try JSONDecoder().decode(Settings.self, from: data)
+
+  #expect(decoded.headRotationCorrection == nil)
+}
+
+@Test func aWrongTypedInterpupillaryKeyDropsOnlyItself() throws {
+  var settings = Settings.default
+  settings.dwellSeconds = 1.25
+  let data = try JSONEncoder().encode(settings)
+  var object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+  object["interpupillaryCentimetres"] = "NaN"
+  let stored = try JSONSerialization.data(withJSONObject: object)
+
+  let suiteName = "u11-settings-wrongtype-\(UUID().uuidString)"
+  let defaults = try #require(UserDefaults(suiteName: suiteName))
+  defer { defaults.removePersistentDomain(forName: suiteName) }
+  let key = "u11-settings-wrongtype-key"
+  let store = UserDefaultsSettingsStore(defaults: defaults, key: key)
+  defaults.set(stored, forKey: key)
+
+  let loaded = store.load()
+
+  #expect(loaded.interpupillaryCentimetres == nil)
+  #expect(loaded.dwellSeconds == 1.25)
+}
+
+@Test func storeLoadClampsOutOfRangeValues() throws {
+  let suiteName = "u11-settings-clamp-\(UUID().uuidString)"
+  let defaults = try #require(UserDefaults(suiteName: suiteName))
+  defer { defaults.removePersistentDomain(forName: suiteName) }
+
+  var settings = Settings.default
+  settings.dwellSeconds = 99
+  settings.dispersionThreshold = 1
+  let key = "u11-settings-clamp-key"
+  let store = UserDefaultsSettingsStore(defaults: defaults, key: key)
+  try store.save(settings)
+
+  let loaded = store.load()
+
+  #expect(loaded.dwellSeconds == SettingsRange.dwellSeconds.upperBound)
+  #expect(loaded.dispersionThreshold == SettingsRange.dispersionThreshold.lowerBound)
+}

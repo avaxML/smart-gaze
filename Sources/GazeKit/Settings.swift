@@ -91,10 +91,16 @@ public struct Settings: Codable, Equatable, Sendable {
     calibratedBounds = try? container.decode(CGRect.self, forKey: .calibratedBounds)
     headTranslationCorrection = try? container.decode(
       HeadTranslationCorrection.self, forKey: .headTranslationCorrection)
-    headRotationCorrection = try? container.decode(
+    // Implausible or non-finite persisted corrections are dropped, so a corrupt
+    // blob cannot steer the gaze point once it is loaded.
+    let decodedHeadRotation = try? container.decode(
       HeadRotationCorrection.self, forKey: .headRotationCorrection)
-    interpupillaryCentimetres = try container.decodeIfPresent(
+    headRotationCorrection = decodedHeadRotation.flatMap { $0.isPlausible ? $0 : nil }
+    let decodedInterpupillary = try? container.decodeIfPresent(
       Double.self, forKey: .interpupillaryCentimetres)
+    interpupillaryCentimetres = decodedInterpupillary.flatMap {
+      InterpupillaryFit.plausibleRange.contains($0) ? $0 : nil
+    }
   }
 
   public init(

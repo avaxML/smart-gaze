@@ -22,12 +22,25 @@ public struct HeadRotationCorrection: Equatable, Sendable, Codable {
   }
 
   /// point - (yawGain * (yaw - referenceYaw), pitchGain * (pitch - referencePitch)).
-  /// Non-finite pose returns point unchanged.
+  /// Non-finite pose or a non-finite stored field returns point unchanged.
   public func correct(_ point: CGPoint, yawRadians: Double, pitchRadians: Double) -> CGPoint {
-    guard yawRadians.isFinite, pitchRadians.isFinite else { return point }
+    guard yawRadians.isFinite, pitchRadians.isFinite,
+      referenceYawRadians.isFinite, referencePitchRadians.isFinite,
+      yawGainPointsPerRadian.isFinite, pitchGainPointsPerRadian.isFinite
+    else { return point }
     let dx = yawGainPointsPerRadian * (yawRadians - referenceYawRadians)
     let dy = pitchGainPointsPerRadian * (pitchRadians - referencePitchRadians)
     return CGPoint(x: point.x - dx, y: point.y - dy)
+  }
+
+  /// Whether every stored value is finite and each gain is within the bound the
+  /// sweep fit enforces, so a hand-edited or corrupt persisted value is dropped
+  /// rather than steering the gaze point.
+  public var isPlausible: Bool {
+    referenceYawRadians.isFinite && referencePitchRadians.isFinite
+      && yawGainPointsPerRadian.isFinite && pitchGainPointsPerRadian.isFinite
+      && abs(yawGainPointsPerRadian) <= HeadRotationFit.maximumGainPointsPerRadian
+      && abs(pitchGainPointsPerRadian) <= HeadRotationFit.maximumGainPointsPerRadian
   }
 }
 

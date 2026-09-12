@@ -91,3 +91,12 @@ private func yawSweepSamples() -> [HeadRotationFit.Sample] {
   #expect(abs(coverage.yaw - 0.3) <= 1e-12)
   #expect(abs(coverage.pitch - 0.05) <= 1e-12)
 }
+
+@Test func aNonFiniteStoredReferenceLeavesThePointAlone() {
+  let broken = HeadRotationCorrection(
+    referenceYawRadians: .nan, referencePitchRadians: 0,
+    yawGainPointsPerRadian: 2000, pitchGainPointsPerRadian: 2000)
+  let point = CGPoint(x: 500, y: 300)
+  #expect(broken.correct(point, yawRadians: 0.1, pitchRadians: 0) == point)
+  #expect(!broken.isPlausible)
+}

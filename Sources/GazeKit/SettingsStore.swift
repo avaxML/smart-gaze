@@ -21,7 +21,7 @@ public struct UserDefaultsSettingsStore: SettingsStore {
     else {
       return .default
     }
-    return decoded
+    return decoded.clamped()
   }
 
   public func save(_ settings: Settings) throws {

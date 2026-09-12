@@ -81,17 +81,17 @@ public struct TrackingPreview: Sendable {
     case .trackingLost(let time):
       return clearTracking(at: time)
     case .modifierDown(let time):
-      guard advance(to: time) else { return [] }
+      if let rejected = advance(to: time) { return rejected }
       return apply(machine.handle(.modifierDown(time)))
     case .modifierUp(let time):
-      guard advance(to: time) else { return [] }
+      if let rejected = advance(to: time) { return rejected }
       return apply(machine.handle(.modifierUp(time)))
     case .blink(let event, let time):
       return handleBlink(event, at: time)
     case .squint(let event, let time):
       return handleSquint(event, at: time)
     case .presentationEnded(let time):
-      guard advance(to: time) else { return [] }
+      if let rejected = advance(to: time) { return rejected }
       return apply(machine.handle(.presentationEnded(time)))
     case .reset:
       reset()
@@ -117,7 +117,7 @@ public struct TrackingPreview: Sendable {
   }
 
   private mutating func handleSample(_ point: CGPoint, at time: TimeInterval) -> [TriggerEffect] {
-    guard advance(to: time) else { return [] }
+    if let rejected = advance(to: time) { return rejected }
     guard point.x.isFinite, point.y.isFinite else {
       lastIssue = .nonFiniteSample(timestamp: time)
       rejectedSampleCount += 1
@@ -163,7 +163,7 @@ public struct TrackingPreview: Sendable {
   }
 
   private mutating func handleBlink(_ event: BlinkEvent, at time: TimeInterval) -> [TriggerEffect] {
-    guard advance(to: time) else { return [] }
+    if let rejected = advance(to: time) { return rejected }
     // The production `TriggerMachine` keeps the last gaze point across
     // `faceLost`, so a blink after loss would otherwise capture a stale point.
     guard isTracking, lastGazePoint != nil else {
@@ -175,7 +175,7 @@ public struct TrackingPreview: Sendable {
 
   private mutating func handleSquint(_ event: SquintEvent, at time: TimeInterval) -> [TriggerEffect]
   {
-    guard advance(to: time) else { return [] }
+    if let rejected = advance(to: time) { return rejected }
     // As with a blink, the machine keeps the last gaze point across
     // `faceLost`, so a squint after a loss would capture a stale point.
     guard isTracking, lastGazePoint != nil else {
@@ -197,19 +197,17 @@ public struct TrackingPreview: Sendable {
     return apply(machine.handle(.faceLost(time)))
   }
 
-  private mutating func advance(to time: TimeInterval) -> Bool {
+  private mutating func advance(to time: TimeInterval) -> [TriggerEffect]? {
     guard time.isFinite else {
       lastIssue = .nonFiniteSample(timestamp: time)
-      clearTracking(at: time)
-      return false
+      return clearTracking(at: time)
     }
     if let last = lastTimestamp, time < last {
       lastIssue = .nonMonotonicTimestamp(previous: last, received: time)
-      clearTracking(at: time)
-      return false
+      return clearTracking(at: time)
     }
     lastTimestamp = time
-    return true
+    return nil
   }
 
   private mutating func apply(_ effects: [TriggerEffect]) -> [TriggerEffect] {

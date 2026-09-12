@@ -62,3 +62,21 @@ private let cloudDepths = [0.0, -0.1, 0.1, 0.0, 0.0]
   #expect(projected[0].y == 0.5)
   #expect(projected[0].depth == 1)
 }
+
+@Test func aNonFiniteRotationKeepsEveryProjectionFinite() {
+  let projected = VisorProjection.project(
+    points: [SIMD2(0.5, 0.5), SIMD2(0.6, 0.5)], depths: [0, 0.05],
+    yawRadians: .nan, pitchRadians: .infinity)
+
+  #expect(projected.count == 2)
+  #expect(projected.allSatisfy { $0.x.isFinite && $0.y.isFinite && $0.depth.isFinite })
+}
+
+@Test func aPointOnTheCameraPlanePassesThroughFinitely() {
+  let depths = [0.0, 2 * VisorProjection.cameraDistance / VisorProjection.depthScale]
+  let projected = VisorProjection.project(
+    points: [SIMD2(0.5, 0.5), SIMD2(0.5, 0.5)], depths: depths,
+    yawRadians: 0, pitchRadians: 0)
+
+  #expect(projected.allSatisfy { $0.x.isFinite && $0.y.isFinite && $0.depth.isFinite })
+}

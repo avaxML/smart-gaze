@@ -264,3 +264,15 @@ private func cluster(
   #expect(preview.localTriggerCount == 0)
   #expect(preview.lastIssue == .squintWhileUntracked(timestamp: 0.0))
 }
+
+@Test func aRejectedOutOfOrderSampleStillHidesTheReticle() {
+  var preview = TrackingPreview(
+    mode: .modifierHeld, bounds: CGRect(x: 0, y: 0, width: 100, height: 100))
+  _ = preview.handle(.modifierDown(0))
+  _ = preview.handle(.sample(CGPoint(x: 5, y: 5), 0.1))
+  #expect(preview.state == .armed(region: CGPoint(x: 5, y: 5), since: 0))
+
+  #expect(preview.handle(.sample(CGPoint(x: 5, y: 5), 0.05)) == [.hideReticle])
+  #expect(preview.state == .idle)
+  #expect(preview.lastIssue == .nonMonotonicTimestamp(previous: 0.1, received: 0.05))
+}

@@ -56,12 +56,14 @@ public struct CalibrationSetupFace: Equatable, Sendable {
       && lhs.eyeAspectRatios?.right == rhs.eyeAspectRatios?.right
   }
 
-  /// Mean of the mesh points. nil when mesh is empty.
+  /// Mean of the mesh points. nil when mesh is empty or its mean is not finite.
   public var center: CGPoint? {
     guard !mesh.isEmpty else { return nil }
     let total = mesh.reduce(CGPoint.zero) { CGPoint(x: $0.x + $1.x, y: $0.y + $1.y) }
     let count = CGFloat(mesh.count)
-    return CGPoint(x: total.x / count, y: total.y / count)
+    let center = CGPoint(x: total.x / count, y: total.y / count)
+    guard center.x.isFinite, center.y.isFinite else { return nil }
+    return center
   }
 
   /// The band the visor reveals: the bounding box of mesh points 33, 133, 362,

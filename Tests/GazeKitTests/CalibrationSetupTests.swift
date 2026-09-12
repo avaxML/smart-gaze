@@ -120,3 +120,17 @@ private func face(center: CGPoint = CGPoint(x: 0.5, y: 0.5), depth: Double? = 60
   #expect(reducer.update(face: nil, at: 1.2) == .findingFace)
   #expect(reducer.update(face: face(), at: 1.3) == .holdStill(progress: 0))
 }
+
+@Test func centerIsNilWhenTheMeshMeanIsNotFinite() {
+  let nonFinite = CalibrationSetupFace(
+    mesh: [CGPoint(x: CGFloat.nan, y: 0.5)],
+    imageLeftEyeContour: [],
+    imageRightEyeContour: [],
+    imageLeftIris: [],
+    imageRightIris: [],
+    depthCentimetres: 60)
+  #expect(nonFinite.center == nil)
+
+  var reducer = CalibrationSetupReducer()
+  #expect(reducer.update(face: nonFinite, at: 0) == .findingFace)
+}

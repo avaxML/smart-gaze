@@ -76,8 +76,8 @@ public struct VisorProjection: Equatable, Sendable {
     let span = maxZ - minZ
     let hasSpan = validCount > 0 && span > 0
 
-    let alpha = parallaxGain * yawRadians
-    let beta = parallaxGain * pitchRadians
+    let alpha = parallaxGain * (yawRadians.isFinite ? yawRadians : 0)
+    let beta = parallaxGain * (pitchRadians.isFinite ? pitchRadians : 0)
     let cosAlpha = cos(alpha)
     let sinAlpha = sin(alpha)
     let cosBeta = cos(beta)
@@ -106,6 +106,12 @@ public struct VisorProjection: Equatable, Sendable {
       let pitchedZ = -sinBeta * relativeY + cosBeta * yawedZ
 
       let factor = cameraDistance / (cameraDistance + pitchedZ)
+      guard factor.isFinite else {
+        // A point that lands on the camera plane has no finite projection;
+        // passing the raw point through keeps the visor drawable.
+        projected.append(Point(x: points[index].x, y: points[index].y, depth: depth))
+        continue
+      }
       projected.append(
         Point(
           x: centroidX + yawedX * factor,
