@@ -11,6 +11,7 @@ import SwiftUI
 struct CalibrationOverlayView: View {
   var coordinator: CalibrationCoordinator
   var localTargetPoint: (CGPoint) -> CGPoint?
+  var showsSetup: Bool
 
   var body: some View {
     ZStack {
@@ -26,6 +27,16 @@ struct CalibrationOverlayView: View {
       }
 
       introduction
+
+      if showsSetup, case .setup(let guidance) = coordinator.phase {
+        CalibrationSetupView(
+          face: coordinator.setupFace,
+          image: coordinator.setupImage,
+          guidance: guidance,
+          frameSize: coordinator.frameSize
+        )
+        .transition(.opacity)
+      }
     }
   }
 

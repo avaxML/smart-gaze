@@ -69,7 +69,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     refreshMenu()
     LaunchDiagnostics.record(.launchCompleted)
-    if LaunchDiagnostics.isEnabled { toggleCamera() }
+    if let directory = CalibrationSetupScreenshotHarness.outputDirectory {
+      Task {
+        await CalibrationSetupScreenshotHarness.capture(
+          windowController: settingsWindowController, outputDirectory: directory)
+      }
+    } else if LaunchDiagnostics.isEnabled {
+      toggleCamera()
+    }
   }
 
   private func handleFrame(_ frame: CameraFrame) {

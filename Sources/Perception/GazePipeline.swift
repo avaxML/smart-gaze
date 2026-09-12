@@ -29,6 +29,9 @@ public struct GazeEstimate: Equatable, Sendable {
   /// The iris-landmark reading for this frame: `nil` when the iris model is not
   /// configured or either eye crop was unavailable.
   public let iris: IrisEstimate?
+  /// The face-mesh landmarks, 468 top-left normalized frame points, for a
+  /// consumer that draws the mesh itself.
+  public let meshLandmarks: [CGPoint]
   /// The interpupillary distance the eye-baseline depth was scaled by, so a
   /// consumer can compute the user's implied value with `InterpupillaryFit`.
   public let assumedInterpupillaryCentimetres: Double
@@ -37,7 +40,7 @@ public struct GazeEstimate: Equatable, Sendable {
     gaze: NormalizedGazePoint, faceDistanceCentimeters: Double, headYawRadians: Double = 0,
     headPitchRadians: Double = 0, faceOriginCentimeters: SIMD3<Double> = .zero,
     cropRotationRadians: Double = 0, usedTrackedCrop: Bool = false,
-    iris: IrisEstimate? = nil,
+    iris: IrisEstimate? = nil, meshLandmarks: [CGPoint] = [],
     assumedInterpupillaryCentimetres: Double = defaultInterpupillaryCentimetres
   ) {
     self.gaze = gaze
@@ -48,6 +51,7 @@ public struct GazeEstimate: Equatable, Sendable {
     self.cropRotationRadians = cropRotationRadians
     self.usedTrackedCrop = usedTrackedCrop
     self.iris = iris
+    self.meshLandmarks = meshLandmarks
     self.assumedInterpupillaryCentimetres = assumedInterpupillaryCentimetres
   }
 }
@@ -247,7 +251,8 @@ public actor GazePipeline {
       headPitchRadians: headPitchRadians(from: headPose.headVector),
       faceOriginCentimeters: headPose.faceOrigin.centimetres,
       cropRotationRadians: crop.rotationRadians, usedTrackedCrop: usedTrackedCrop,
-      iris: iris, assumedInterpupillaryCentimetres: interpupillaryCentimetres)
+      iris: iris, meshLandmarks: fullFrame.normalized,
+      assumedInterpupillaryCentimetres: interpupillaryCentimetres)
   }
 
   /// Runs the iris model on both eye crops. The image-right eye's landmarks

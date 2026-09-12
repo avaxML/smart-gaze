@@ -1,8 +1,11 @@
 import AppKit
 import CoreGraphics
+import CoreImage
+import CoreVideo
 import Foundation
 import GazeKit
 import Perception
+import QuartzCore
 
 /// What the calibration window shows right now. `CalibrationRun` decides the
 /// target sequence and whether a burst is good enough; this only tracks the
@@ -13,6 +16,7 @@ import Perception
 final class CalibrationCoordinator {
   enum Phase: Equatable {
     case preparing
+    case setup(CalibrationSetupGuidance)
     case unavailable(String)
     case settling(target: CGPoint)
     case collecting(target: CGPoint)
@@ -24,6 +28,9 @@ final class CalibrationCoordinator {
 
   private(set) var phase: Phase = .preparing
   private(set) var progress: (completed: Int, total: Int) = (0, 0)
+  private(set) var setupFace: CalibrationSetupFace?
+  private(set) var setupImage: CGImage?
+  private(set) var frameSize: CGSize = .zero
 
   var onFinished: ((CalibrationResult?) -> Void)?
 
@@ -46,6 +53,8 @@ final class CalibrationCoordinator {
   private var latestFaceOrigin: SIMD3<Double>?
   private var latestHeadPose: (yaw: Double, pitch: Double)?
   private var latestImpliedInterpupillary: Double?
+  private var setupReducer = CalibrationSetupReducer()
+  private let ciContext = CIContext()
 
   init(
     bounds: CGRect,
@@ -81,6 +90,18 @@ final class CalibrationCoordinator {
     guard case .completed(let result) = phase else { return false }
     return result.horizontalErrorPoints > maxErrorPoints
       || result.verticalErrorPoints > maxErrorPoints
+  }
+
+  /// Maps one pipeline reading onto the setup visor's face. Pure so a test can
+  /// exercise the mapping without a camera or an actor hop.
+  nonisolated static func setupFace(from estimate: GazeEstimate) -> CalibrationSetupFace {
+    CalibrationSetupFace(
+      mesh: estimate.meshLandmarks,
+      imageLeftEyeContour: estimate.iris?.imageLeftEye.contour ?? [],
+      imageRightEyeContour: estimate.iris?.imageRightEye.contour ?? [],
+      imageLeftIris: estimate.iris?.imageLeftEye.irisPoints ?? [],
+      imageRightIris: estimate.iris?.imageRightEye.irisPoints ?? [],
+      depthCentimetres: estimate.iris?.depthCentimetres ?? estimate.faceDistanceCentimeters)
   }
 
   func start() {
@@ -120,6 +141,17 @@ final class CalibrationCoordinator {
   }
 
   private func runLoop() async {
+    phase = .setup(.findingFace)
+    while !Task.isCancelled {
+      if case .setup(.ready) = phase { break }
+      try? await Task.sleep(for: .milliseconds(50))
+    }
+    if Task.isCancelled { return }
+    try? await Task.sleep(for: .milliseconds(600))
+    if Task.isCancelled { return }
+    setupFace = nil
+    setupImage = nil
+
     while !Task.isCancelled {
       guard var currentRun = run, let target = currentRun.currentTargetScreenPoint else { break }
 
@@ -203,8 +235,20 @@ final class CalibrationCoordinator {
   private func handleFrame(_ frame: CameraFrame) {
     guard let pipeline else { return }
     frameCount += 1
+    if frameSize == .zero {
+      frameSize = CGSize(
+        width: CVPixelBufferGetWidth(frame.pixelBuffer),
+        height: CVPixelBufferGetHeight(frame.pixelBuffer))
+    }
+    var captureSetupImage = false
+    if case .setup = phase, frameCount % 3 == 0 {
+      captureSetupImage = true
+    }
     Task { [weak self] in
       guard let self else { return }
+      if captureSetupImage, let image = self.setupPreviewImage(from: frame.pixelBuffer) {
+        self.setupImage = image
+      }
       do {
         let estimate = try await pipeline.gazePoint(from: frame.pixelBuffer)
         self.gazeCount += 1
@@ -220,12 +264,35 @@ final class CalibrationCoordinator {
         {
           self.latestImpliedInterpupillary = implied
         }
+        if case .setup = self.phase {
+          let face = Self.setupFace(from: estimate)
+          self.setupFace = face
+          self.phase = .setup(
+            self.setupReducer.update(face: face, at: CACurrentMediaTime()))
+        }
       } catch {
         self.gazeErrorCount += 1
         if self.gazeErrorCount <= 5 {
           LaunchDiagnostics.record(.calibration, "gaze error \(self.gazeErrorCount): \(error)")
         }
+        if case .setup = self.phase {
+          self.setupFace = nil
+          self.phase = .setup(
+            self.setupReducer.update(face: nil, at: CACurrentMediaTime()))
+        }
       }
     }
+  }
+
+  /// A downscaled still of the current frame for the setup visor. The view only
+  /// needs a preview, so the longer side is capped and the still is refreshed
+  /// on a fraction of frames rather than every frame the pipeline reads.
+  private func setupPreviewImage(from pixelBuffer: CVPixelBuffer) -> CGImage? {
+    let source = CIImage(cvPixelBuffer: pixelBuffer)
+    let extent = source.extent
+    guard extent.width > 0, extent.height > 0 else { return nil }
+    let scale = min(1, 640 / max(extent.width, extent.height))
+    let scaled = source.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+    return ciContext.createCGImage(scaled, from: scaled.extent)
   }
 }

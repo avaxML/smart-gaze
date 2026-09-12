@@ -71,6 +71,20 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     model.settingsWindowWillClose()
   }
 
+  /// The main display's calibration window while a run is live, for the
+  /// screenshot harness.
+  var calibrationScreenshotWindow: NSWindow? {
+    calibrationWindowController?.screenshotWindow
+  }
+
+  var isCalibrationSetupVisible: Bool {
+    calibrationWindowController?.isShowingSetupWithFace ?? false
+  }
+
+  func abortCalibration() {
+    calibrationWindowController?.abort()
+  }
+
   private func makeWindow() -> NSWindow {
     let hosting = NSHostingController(rootView: SettingsView(model: model, preview: preview))
     let window = NSWindow(contentViewController: hosting)
