@@ -23,7 +23,9 @@ public enum FocalLengthCalibration {
       irisDiameterPixels.isFinite, irisDiameterPixels > 0,
       distanceCentimetres.isFinite, distanceCentimetres > 0
     else { return nil }
-    return irisDiameterPixels * distanceCentimetres * 10 / IrisGeometry.irisDiameterMillimetres
+    let focalLength =
+      irisDiameterPixels * distanceCentimetres * 10 / IrisGeometry.irisDiameterMillimetres
+    return focalLength.isFinite ? focalLength : nil
   }
 
   /// Median of the per-frame focal lengths, in pixels.
@@ -76,5 +78,17 @@ public struct CameraFocalLength: Equatable, Sendable, Codable {
 
   public func verticalFocalLengthPixels(frameHeight: Double) -> Double {
     focalLengthPerFrameHeight * frameHeight
+  }
+
+  /// Whether the stored fraction implies a vertical field of view inside the
+  /// range a real measurement enforces, so a hand-edited or corrupt persisted
+  /// entry is dropped rather than applied. The field of view depends only on
+  /// the fraction, not on the frame height.
+  public var isPlausible: Bool {
+    guard focalLengthPerFrameHeight.isFinite, focalLengthPerFrameHeight > 0,
+      let degrees = FocalLengthCalibration.verticalFieldOfViewDegrees(
+        focalLengthPixels: focalLengthPerFrameHeight, frameHeight: 1)
+    else { return false }
+    return FocalLengthCalibration.plausibleVerticalFieldOfViewDegrees.contains(degrees)
   }
 }

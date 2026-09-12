@@ -198,6 +198,10 @@ final class CalibrationCoordinator {
   }
 
   func abort() {
+    switch phase {
+    case .aborted, .completed, .failed: return
+    default: break
+    }
     runTask?.cancel()
     runTask = nil
     run?.abort()

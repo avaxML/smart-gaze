@@ -390,3 +390,14 @@ private func tightBurst(around target: NormalizedGazePoint) -> [NormalizedGazePo
   }
   #expect(result.headRotationCorrection == nil)
 }
+
+@Test func aBurstWithANonFiniteSampleIsDispersed() {
+  let samples = [
+    NormalizedGazePoint(x: 0.5, y: 0.5),
+    NormalizedGazePoint(x: .nan, y: 0.5),
+  ]
+
+  #expect(
+    BurstEvaluator.evaluate(samples, dispersionThreshold: 0.25)
+      == .dispersed(dispersion: .infinity))
+}

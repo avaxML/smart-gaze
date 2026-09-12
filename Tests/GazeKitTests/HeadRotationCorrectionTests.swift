@@ -100,3 +100,11 @@ private func yawSweepSamples() -> [HeadRotationFit.Sample] {
   #expect(broken.correct(point, yawRadians: 0.1, pitchRadians: 0) == point)
   #expect(!broken.isPlausible)
 }
+
+@Test func anAbsurdStoredReferenceIsImplausible() {
+  let broken = HeadRotationCorrection(
+    referenceYawRadians: 1e300, referencePitchRadians: 0,
+    yawGainPointsPerRadian: 100, pitchGainPointsPerRadian: 0)
+
+  #expect(!broken.isPlausible)
+}

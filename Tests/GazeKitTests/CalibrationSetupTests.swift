@@ -164,3 +164,17 @@ private func face(center: CGPoint = CGPoint(x: 0.5, y: 0.5), depth: Double? = 60
   var reducer = CalibrationSetupReducer()
   #expect(reducer.update(face: nonFinite, at: 0) == .findingFace)
 }
+
+@Test func reducerIgnoresANonFiniteTimestamp() {
+  var reducer = CalibrationSetupReducer()
+  let face = CalibrationSetupFace(
+    mesh: [CGPoint(x: 0.5, y: 0.5)],
+    imageLeftEyeContour: [],
+    imageRightEyeContour: [],
+    imageLeftIris: [],
+    imageRightIris: [],
+    depthCentimetres: 60)
+
+  #expect(reducer.update(face: face, at: .nan) == .findingFace)
+  #expect(reducer.update(face: face, at: 0.25) == .holdStill(progress: 0))
+}

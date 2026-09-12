@@ -43,6 +43,25 @@ private let testBounds = CGRect(x: 0, y: 0, width: 1000, height: 800)
   #expect(finishedResults == [nil])
 }
 
+@MainActor
+@Test func abortingTwiceReportsCompletionOnce() async {
+  let observer = FakeFaceObserver()
+  let coordinator = CalibrationCoordinator(
+    bounds: testBounds,
+    makePipeline: { throw TestFailure() },
+    camera: CameraController(makeObserver: { observer }))
+
+  var finishedResults: [CalibrationResult?] = []
+  coordinator.onFinished = { finishedResults.append($0) }
+
+  coordinator.start()
+  coordinator.abort()
+  coordinator.abort()
+
+  #expect(coordinator.phase == .aborted)
+  #expect(finishedResults == [nil])
+}
+
 /// Mirrors exactly how `SettingsWindowController.startCalibration()` wires a
 /// run's completion into persistence: only a non-nil result is ever applied.
 /// This is the contract issue #14 calls out explicitly: an aborted run must

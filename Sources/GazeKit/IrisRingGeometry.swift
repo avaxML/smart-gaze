@@ -35,7 +35,7 @@ public enum IrisRingGeometry {
     let discriminant = ((s11 - s22) * (s11 - s22) + 4 * s12 * s12).squareRoot()
     let major = (trace + discriminant) / 2
     let minor = (trace - discriminant) / 2
-    guard major.isFinite, major > 0 else { return nil }
+    guard major.isFinite, minor.isFinite, major > 0, minor > 0 else { return nil }
 
     var angle = s12 == 0 ? (s11 >= s22 ? 0 : .pi / 2) : atan2(major - s11, s12)
     angle = angle.truncatingRemainder(dividingBy: .pi)
@@ -44,7 +44,7 @@ public enum IrisRingGeometry {
     return (
       center: center,
       semiMajor: major.squareRoot(),
-      semiMinor: minor > 0 ? minor.squareRoot() : 0,
+      semiMinor: minor.squareRoot(),
       angleRadians: angle
     )
   }

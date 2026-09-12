@@ -132,3 +132,28 @@ private func makeCameraFrame(height: Int = 1080) -> CameraFrame {
   #expect(assumed.source == .assumed)
   #expect(assumed.verticalFieldOfViewDegrees == 32)
 }
+
+@Test func focalResolutionRejectsAnImplausibleMeasurementAndUsesTheTable() throws {
+  let measured = CameraFocalLength(
+    cameraID: "id", cameraName: "Camera", focalLengthPerFrameHeight: 20)
+
+  let resolved = try #require(
+    CameraFocalLengthResolution.resolve(
+      measured: measured, intrinsicFocalLengthPixels: nil,
+      cameraName: "MacBook Pro Camera", frameHeight: 1080))
+
+  #expect(resolved.source == .table)
+  #expect(resolved.verticalFieldOfViewDegrees == 32)
+}
+
+@Test func focalResolutionRejectsAnOverflowingStoredFraction() throws {
+  let measured = CameraFocalLength(
+    cameraID: "id", cameraName: "Camera", focalLengthPerFrameHeight: 1e300)
+
+  let resolved = try #require(
+    CameraFocalLengthResolution.resolve(
+      measured: measured, intrinsicFocalLengthPixels: nil,
+      cameraName: "Unknown Camera", frameHeight: 1080))
+
+  #expect(resolved.source == .assumed)
+}

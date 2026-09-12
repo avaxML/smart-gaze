@@ -45,3 +45,11 @@ import Testing
   let rim = [CGPoint(x: 10, y: 0), CGPoint(x: 0, y: 6), CGPoint(x: -10, y: 0)]
   #expect(IrisRingGeometry.ellipse(throughRim: rim) == nil)
 }
+
+@Test func ellipseRejectsAZeroAreaRim() {
+  let rim = [
+    CGPoint(x: 10, y: 0), CGPoint(x: 0, y: 0),
+    CGPoint(x: -10, y: 0), CGPoint(x: 0, y: 0),
+  ]
+  #expect(IrisRingGeometry.ellipse(throughRim: rim) == nil)
+}

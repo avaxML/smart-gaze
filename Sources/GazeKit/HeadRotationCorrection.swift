@@ -33,12 +33,14 @@ public struct HeadRotationCorrection: Equatable, Sendable, Codable {
     return CGPoint(x: point.x - dx, y: point.y - dy)
   }
 
-  /// Whether every stored value is finite and each gain is within the bound the
-  /// sweep fit enforces, so a hand-edited or corrupt persisted value is dropped
-  /// rather than steering the gaze point.
+  /// Whether every stored value is finite and inside the bounds the sweep fit
+  /// enforces, so a hand-edited or corrupt persisted value is dropped rather
+  /// than steering the gaze point.
   public var isPlausible: Bool {
     referenceYawRadians.isFinite && referencePitchRadians.isFinite
       && yawGainPointsPerRadian.isFinite && pitchGainPointsPerRadian.isFinite
+      && abs(referenceYawRadians) <= HeadRotationFit.maximumReferenceRadians
+      && abs(referencePitchRadians) <= HeadRotationFit.maximumReferenceRadians
       && abs(yawGainPointsPerRadian) <= HeadRotationFit.maximumGainPointsPerRadian
       && abs(pitchGainPointsPerRadian) <= HeadRotationFit.maximumGainPointsPerRadian
   }
@@ -51,6 +53,9 @@ public enum HeadRotationFit {
   public static let minimumYawRangeRadians = 0.15
   public static let minimumPitchRangeRadians = 0.10
   public static let maximumGainPointsPerRadian = 6000.0
+  /// A reference pose more than a quarter turn from level cannot come from a
+  /// face the camera could still see, so a persisted one is corrupt.
+  public static let maximumReferenceRadians = Double.pi / 2
 
   /// One sweep sample: the map's projection of the raw gaze while the user
   /// held the centre target, and the head pose on that frame.

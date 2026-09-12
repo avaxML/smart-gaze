@@ -57,6 +57,9 @@ public enum BurstEvaluator {
     _ samples: [NormalizedGazePoint], dispersionThreshold: Double
   ) -> BurstQuality {
     guard let first = samples.first else { return .dispersed(dispersion: .infinity) }
+    guard samples.allSatisfy({ $0.x.isFinite && $0.y.isFinite }) else {
+      return .dispersed(dispersion: .infinity)
+    }
 
     var minX = first.x
     var maxX = first.x

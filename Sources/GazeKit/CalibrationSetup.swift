@@ -143,6 +143,7 @@ public struct CalibrationSetupReducer: Equatable, Sendable {
   public mutating func update(face: CalibrationSetupFace?, at time: TimeInterval)
     -> CalibrationSetupGuidance
   {
+    guard time.isFinite else { return .findingFace }
     guard let face, !face.mesh.isEmpty else {
       holdStart = nil
       return .findingFace

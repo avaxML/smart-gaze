@@ -104,9 +104,11 @@ public struct Settings: Codable, Equatable, Sendable {
     interpupillaryCentimetres = decodedInterpupillary.flatMap {
       InterpupillaryFit.plausibleRange.contains($0) ? $0 : nil
     }
-    // Settings written before the camera measurement existed keep no entries.
+    // Settings written before the camera measurement existed keep no entries,
+    // and an implausible stored fraction is dropped rather than applied.
     cameraFocalLengths =
-      (try? container.decodeIfPresent([CameraFocalLength].self, forKey: .cameraFocalLengths)) ?? []
+      (try? container.decodeIfPresent([CameraFocalLength].self, forKey: .cameraFocalLengths))?
+      .filter(\.isPlausible) ?? []
   }
 
   public init(

@@ -54,3 +54,10 @@ import Testing
 
   #expect(camera.verticalFocalLengthPixels(frameHeight: 1080) == 1512)
 }
+
+@Test func anOverflowingFocalLengthIsRejected() {
+  #expect(
+    FocalLengthCalibration.focalLengthPixels(
+      irisDiameterPixels: .greatestFiniteMagnitude,
+      distanceCentimetres: .greatestFiniteMagnitude) == nil)
+}

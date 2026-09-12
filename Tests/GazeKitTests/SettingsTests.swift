@@ -392,3 +392,30 @@ private func settingsObjectWithEveryKey() throws -> [String: Any] {
   #expect(decoded.cameraFocalLengths.isEmpty)
   #expect(decoded.focalLength(forCameraID: "anything") == nil)
 }
+
+@Test func anImplausibleStoredFocalLengthIsDroppedButGoodOnesSurvive() throws {
+  var object = try settingsObjectWithEveryKey()
+  object["cameraFocalLengths"] = [
+    ["cameraID": "camera-one", "cameraName": "Camera One", "focalLengthPerFrameHeight": 20.0],
+    ["cameraID": "camera-two", "cameraName": "Camera Two", "focalLengthPerFrameHeight": 1.4],
+  ]
+  let data = try JSONSerialization.data(withJSONObject: object)
+
+  let decoded = try JSONDecoder().decode(Settings.self, from: data)
+
+  #expect(decoded.focalLength(forCameraID: "camera-one") == nil)
+  #expect(decoded.focalLength(forCameraID: "camera-two") != nil)
+}
+
+@Test func anAbsurdHeadRotationReferenceIsDroppedOnDecode() throws {
+  var object = try settingsObjectWithEveryKey()
+  object["headRotationCorrection"] = [
+    "referenceYawRadians": 1e300, "referencePitchRadians": 0.0,
+    "yawGainPointsPerRadian": 100.0, "pitchGainPointsPerRadian": 0.0,
+  ]
+  let data = try JSONSerialization.data(withJSONObject: object)
+
+  let decoded = try JSONDecoder().decode(Settings.self, from: data)
+
+  #expect(decoded.headRotationCorrection == nil)
+}

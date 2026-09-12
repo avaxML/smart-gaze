@@ -18,7 +18,9 @@ struct ResolvedFocalLength {
 
 enum CameraFocalLengthResolution {
   /// Preference order: the camera's own intrinsics, then a stored
-  /// measurement, then the per-model table, then the hand-fitted fallback.
+  /// measurement, then the per-model table, then the hand-fitted fallback. A
+  /// stored measurement outside the plausible field-of-view range is skipped
+  /// rather than applied.
   ///
   /// - Returns: `nil` when `frameHeight` is not a positive finite number.
   static func resolve(
@@ -40,18 +42,16 @@ enum CameraFocalLengthResolution {
         verticalFieldOfViewDegrees: fieldOfViewDegrees)
     }
 
-    if let measured, measured.focalLengthPerFrameHeight.isFinite,
-      measured.focalLengthPerFrameHeight > 0
-    {
+    if let measured, measured.isPlausible {
       let pixels = measured.verticalFocalLengthPixels(frameHeight: frameHeight)
-      guard
-        let fieldOfViewDegrees = FocalLengthCalibration.verticalFieldOfViewDegrees(
-          focalLengthPixels: pixels, frameHeight: frameHeight)
-      else { return nil }
-      return ResolvedFocalLength(
-        source: .measured,
-        verticalFocalLengthPixels: pixels,
-        verticalFieldOfViewDegrees: fieldOfViewDegrees)
+      if let fieldOfViewDegrees = FocalLengthCalibration.verticalFieldOfViewDegrees(
+        focalLengthPixels: pixels, frameHeight: frameHeight)
+      {
+        return ResolvedFocalLength(
+          source: .measured,
+          verticalFocalLengthPixels: pixels,
+          verticalFieldOfViewDegrees: fieldOfViewDegrees)
+      }
     }
 
     let source: FocalLengthSource
