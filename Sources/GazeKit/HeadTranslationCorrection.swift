@@ -51,4 +51,28 @@ public struct HeadTranslationCorrection: Equatable, Sendable, Codable {
     let dy = Self.verticalShareLeftToCorrect * pointsPerCentimeter.y * delta.y
     return CGPoint(x: point.x + dx, y: point.y + dy)
   }
+
+  /// Depth ratios outside this band are treated as estimator trouble or a
+  /// posture the map was never meant for, and held at the edge.
+  public static let depthRatioRange: ClosedRange<Double> = 0.7...1.4
+
+  /// Scales the point's offset from the spot straight ahead of the eyes by
+  /// the change in distance since calibration. The affine map was fitted at
+  /// one depth; the same gaze angle lands proportionally further from that
+  /// spot as the head moves back, which the model's own origin term does not
+  /// cover away from the centre. `displayBounds` is the calibrated display in
+  /// global points; the camera is taken to sit at its top centre.
+  public func scaleForDepth(
+    _ point: CGPoint, faceOriginCentimeters origin: SIMD3<Double>, displayBounds: CGRect
+  ) -> CGPoint {
+    guard origin.z.isFinite, origin.z > 0, referenceOriginCentimeters.z > 0 else { return point }
+    let raw = origin.z / referenceOriginCentimeters.z
+    let ratio = min(max(raw, Self.depthRatioRange.lowerBound), Self.depthRatioRange.upperBound)
+    let foot = CGPoint(
+      x: displayBounds.midX + origin.x * pointsPerCentimeter.x,
+      y: displayBounds.minY + origin.y * pointsPerCentimeter.y)
+    return CGPoint(
+      x: foot.x + (point.x - foot.x) * ratio,
+      y: foot.y + (point.y - foot.y) * ratio)
+  }
 }

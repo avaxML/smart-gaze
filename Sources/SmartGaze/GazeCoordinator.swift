@@ -47,6 +47,10 @@ actor GazeCoordinator {
   private var headPose = HeadPoseGate()
   private let calibration: CalibrationMap?
   private let headTranslation: HeadTranslationCorrection?
+  private let calibratedBounds: CGRect?
+  /// Depth scaling of the map (issue #99) ships dark until it has been
+  /// checked at the desk: calibrate at 70 cm, fixate a corner, lean to 90 cm.
+  private let depthScaling = ProcessInfo.processInfo.environment["SMART_GAZE_DEPTH_SCALING"] != nil
 
   private let gazePipeline: GazePipeline?
   private let capturer: any RegionCapturing
@@ -84,6 +88,7 @@ actor GazeCoordinator {
     self.calibration = settings.calibrationMap
     self.gazeFilter = OneEuroPointFilter(smoothing: settings.gazeSmoothing)
     self.headTranslation = settings.headTranslationCorrection
+    self.calibratedBounds = settings.calibratedBounds
     self.gazePipeline = gazePipeline
     self.capturer = capturer
     self.bubble = bubble
@@ -131,9 +136,17 @@ actor GazeCoordinator {
       faceLoss.recordSuccess()
       handleHeadYaw(estimate.headYawRadians)
       let projected = calibration.project(estimate.gaze)
-      let screenPoint =
+      let translated =
         headTranslation?.correct(projected, faceOriginCentimeters: estimate.faceOriginCentimeters)
         ?? projected
+      let screenPoint: CGPoint
+      if depthScaling, let calibratedBounds, let headTranslation {
+        screenPoint = headTranslation.scaleForDepth(
+          translated, faceOriginCentimeters: estimate.faceOriginCentimeters,
+          displayBounds: calibratedBounds)
+      } else {
+        screenPoint = translated
+      }
       let filtered = gazeFilter.apply(screenPoint, at: timestamp)
       if !reportedSessionOrigin {
         reportedSessionOrigin = true
