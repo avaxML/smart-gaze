@@ -27,6 +27,9 @@ enum LaunchDiagnostics {
     /// set, and only for the first few hundred samples. The evidence a filter
     /// change has to be tuned against.
     case gaze = "gaze"
+    /// Every capture the trigger fires and how it ended, so a live session
+    /// can be checked from the log alone.
+    case capture = "capture"
   }
 
   private static let path = ProcessInfo.processInfo.environment["SMART_GAZE_LAUNCH_LOG"]

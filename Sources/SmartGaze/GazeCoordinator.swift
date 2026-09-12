@@ -259,6 +259,7 @@ actor GazeCoordinator {
   }
 
   private func runCapture(at point: CGPoint) async {
+    LaunchDiagnostics.record(.capture, "fired at=(\(point.x),\(point.y))")
     let (displayID, localCenter) = GazeCoordinator.displayLocalPoint(for: point)
     let request = CaptureRequest(center: localCenter, size: captureSize, displayID: displayID)
 
@@ -289,12 +290,16 @@ actor GazeCoordinator {
       try Task.checkCancellation()
       await MainActor.run { [weak self] in self?.bubble.finish(for: handle) }
       completedCaptureCount += 1
+      LaunchDiagnostics.record(.capture, "completed")
     } catch is CancellationError {
+      LaunchDiagnostics.record(.capture, "cancelled")
       return
     } catch let error as CaptureError {
+      LaunchDiagnostics.record(.capture, "failed \(error)")
       providerErrorCount += 1
       await presentError(GazeCoordinator.message(for: error), anchoredTo: point)
     } catch {
+      LaunchDiagnostics.record(.capture, "failed \(error)")
       providerErrorCount += 1
       let message =
         (error as? LocalizedError)?.errorDescription ?? "The explanation could not be completed."
