@@ -25,6 +25,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var settingsModel: SettingsModel!
 
   private var coordinator: GazeCoordinator?
+  /// Bumped by every start and stop so a model load that finishes after a
+  /// later stop does not wire a coordinator into a stopped session.
+  private var pipelineGeneration = 0
   private var modifierMonitor: ModifierMonitor?
   private var accessibilityDegraded = false
   private var accessibilityWatch: Timer?
@@ -90,20 +93,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   /// than crashing: the reported condition still starts the camera, just
   /// without the leg that needs the missing piece.
   private func startGazePipeline() {
-    var settings = settingsModel.settings
-    let pipeline: GazePipeline?
-    do {
-      pipeline = try GazePipeline(
-        faceMeshModelURL: ModelLocator.faceMeshModelURL(),
-        blazeGazeModelURL: ModelLocator.blazeGazeModelURL(),
-        verticalFieldOfViewDegrees: CameraGeometry.builtInVerticalFieldOfViewDegrees)
-      modelsMissing = false
-      LaunchDiagnostics.record(.pipelineReady, "ok")
-    } catch {
-      pipeline = nil
-      modelsMissing = true
-      LaunchDiagnostics.record(.pipelineReady, "failed \(error)")
+    // The two Core ML loads take the better part of a second. Done on the
+    // main thread they stall the event tap past its deadline and macOS
+    // switches it off, so they run detached and the wiring resumes here.
+    pipelineGeneration += 1
+    let generation = pipelineGeneration
+    Task { [weak self] in
+      let loaded = await Task.detached(priority: .userInitiated) {
+        () -> Result<GazePipeline, Error> in
+        Result {
+          try GazePipeline(
+            faceMeshModelURL: ModelLocator.faceMeshModelURL(),
+            blazeGazeModelURL: ModelLocator.blazeGazeModelURL(),
+            verticalFieldOfViewDegrees: CameraGeometry.builtInVerticalFieldOfViewDegrees)
+        }
+      }.value
+      guard let self, self.pipelineGeneration == generation else { return }
+      switch loaded {
+      case .success(let pipeline):
+        self.modelsMissing = false
+        LaunchDiagnostics.record(.pipelineReady, "ok")
+        self.finishStartingGazePipeline(pipeline)
+      case .failure(let error):
+        self.modelsMissing = true
+        LaunchDiagnostics.record(.pipelineReady, "failed \(error)")
+        self.finishStartingGazePipeline(nil)
+      }
     }
+  }
+
+  private func finishStartingGazePipeline(_ pipeline: GazePipeline?) {
+    let settings = settingsModel.settings
 
     // Without Accessibility the modifier is never seen, so the app stays in
     // the mode the user chose and fires nothing. Silently switching to dwell
@@ -188,6 +208,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   private func stopGazePipeline() {
+    pipelineGeneration += 1
     accessibilityWatch?.invalidate()
     accessibilityWatch = nil
     modifierMonitor?.stop()
