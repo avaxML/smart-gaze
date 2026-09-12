@@ -291,7 +291,7 @@ final class CalibrationCoordinator {
     let source = CIImage(cvPixelBuffer: pixelBuffer)
     let extent = source.extent
     guard extent.width > 0, extent.height > 0 else { return nil }
-    let scale = min(1, 640 / max(extent.width, extent.height))
+    let scale = min(1, 960 / max(extent.width, extent.height))
     let scaled = source.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
     return ciContext.createCGImage(scaled, from: scaled.extent)
   }
