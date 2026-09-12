@@ -30,6 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var pipelineGeneration = 0
   private var modifierMonitor: ModifierMonitor?
   private var accessibilityDegraded = false
+  private var faceTurned = false
   private var accessibilityWatch: Timer?
   private var modelsMissing = false
 
@@ -147,7 +148,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         await MainActor.run { settingsModel?.makeExplanationStream(imageJPEG: jpeg) }
       })
     self.coordinator = coordinator
-    Task { await coordinator.start() }
+    faceTurned = false
+    Task {
+      await coordinator.setFaceTurnedHandler { [weak self] turned in
+        Task { @MainActor in
+          guard let self, self.faceTurned != turned else { return }
+          self.faceTurned = turned
+          self.refreshMenu()
+        }
+      }
+      await coordinator.start()
+    }
 
     LaunchDiagnostics.record(
       .modifier,
@@ -301,7 +312,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       camera: camera.state,
       calibrationNeeded: !settingsModel.hasCalibration,
       isCaptureBusy: captureActivity.isBusy,
-      accessibilityDegraded: accessibilityDegraded, modelsMissing: modelsMissing)
+      accessibilityDegraded: accessibilityDegraded, modelsMissing: modelsMissing,
+      faceTurned: faceTurned)
   }
 
   private func refreshMenu() {

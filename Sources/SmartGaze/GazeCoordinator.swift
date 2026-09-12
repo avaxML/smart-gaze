@@ -169,7 +169,19 @@ actor GazeCoordinator {
   /// the gate flip on one bucket boundary. Internal so a test can turn the
   /// head without a live pipeline.
   func handleHeadYaw(_ yawRadians: Double) {
+    let wasBlocked = headPose.isBlocked
     headPose.update(yawRadians: yawRadians)
+    if headPose.isBlocked != wasBlocked {
+      onFaceTurnedChanged?(headPose.isBlocked)
+    }
+  }
+
+  /// Fires when the head pose gate opens or closes, so the menu can say why
+  /// a hold produces nothing. Set once from `AppDelegate`.
+  private var onFaceTurnedChanged: (@Sendable (Bool) -> Void)?
+
+  func setFaceTurnedHandler(_ handler: @escaping @Sendable (Bool) -> Void) {
+    onFaceTurnedChanged = handler
   }
 
   /// Feeds a resolved screen-space gaze point straight into tracking.
