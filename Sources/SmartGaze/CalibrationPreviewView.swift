@@ -9,28 +9,12 @@ struct CalibrationPreviewView: View {
   var model: CalibrationPreviewModel
 
   var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 12) {
-        Picker("Preview source", selection: sourceBinding) {
-          ForEach(CalibrationPreviewModel.Source.allCases) { source in
-            Text(source.title).tag(source)
-          }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-
-        sourceSection
-
-        HStack(alignment: .top, spacing: 12) {
-          targetArea
-          telemetryPanel.frame(width: 300, alignment: .topLeading)
-        }
-
-        explanationPanel
-      }
-      .padding(16)
-      .frame(minWidth: 760, alignment: .topLeading)
+    Form {
+      calibrationSection
+      targetTelemetrySection
+      explanationSection
     }
+    .formStyle(.grouped)
     .background {
       SimulationEventBridge(
         isActive: model.isSimulationInputActive,
@@ -47,8 +31,68 @@ struct CalibrationPreviewView: View {
     Binding(get: { model.selectedSource }, set: { model.selectSource($0) })
   }
 
+  private var pointerSimulationBinding: Binding<Bool> {
+    Binding(
+      get: { model.isPointerSimulationEnabled },
+      set: { model.setPointerSimulationEnabled($0) })
+  }
+
+  /// One card holds the primary action, the source picker and every source
+  /// detail, so the target and its live telemetry start high enough to fit the
+  /// default 800x600 window without scrolling.
+  private var calibrationSection: some View {
+    Section {
+      HStack(spacing: 12) {
+        Button("Start Calibration") { model.startCalibration() }
+          .buttonStyle(.borderedProminent)
+          .controlSize(.large)
+          .help("Run the calibration overlay to measure your gaze.")
+        Spacer(minLength: 12)
+        if model.isExplanationLoading {
+          Button("Cancel") { model.cancelExplanation() }
+            .controlSize(.large)
+            .help("Stop the in-flight explanation request.")
+        }
+        Button("Test Explanation") { model.requestTestExplanation() }
+          .controlSize(.large)
+          .disabled(!model.isExplanationAvailable || model.isExplanationLoading)
+          .help("Send the visible sample code to the provider and show the returned explanation.")
+      }
+
+      LabeledContent("Preview source") {
+        Picker("Preview source", selection: sourceBinding) {
+          ForEach(CalibrationPreviewModel.Source.allCases) { source in
+            Text(source.title).tag(source)
+          }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(width: 280)
+        .help("Choose live tracking or a pointer-driven simulation.")
+      }
+
+      sourceDetails
+
+      Label(model.calibrationStatusMessage, systemImage: "target")
+        .font(.callout)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+
+      if let message = model.explanationAvailabilityMessage {
+        Label(message, systemImage: "info.circle")
+          .font(.callout)
+          .foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+    } header: {
+      Text("Calibration")
+    } footer: {
+      sourceFooter
+    }
+  }
+
   @ViewBuilder
-  private var sourceSection: some View {
+  private var sourceDetails: some View {
     switch model.selectedSource {
     case .live:
       if model.isLiveTrackingAvailable {
@@ -62,65 +106,68 @@ struct CalibrationPreviewView: View {
         .foregroundStyle(.secondary)
       }
     case .pointerSimulation:
-      VStack(alignment: .leading, spacing: 8) {
-        Toggle(
-          "Enable pointer simulation (real pointer, not camera gaze)",
-          isOn: pointerSimulationBinding)
-        if model.isPointerSimulationEnabled {
-          Text("Activation mode: \(modeLabel)")
-            .font(.callout)
-          modifierControls
-          HStack(spacing: 8) {
-            Button("Reset") { model.resetPreview() }
-            Spacer()
-          }
-          Text(
-            "Samples come from the latest real pointer position while it is over the target, at about 30 Hz."
-          )
-          .font(.caption)
-          .foregroundStyle(.secondary)
+      Toggle(
+        "Enable pointer simulation (real pointer, not camera gaze)", isOn: pointerSimulationBinding
+      )
+      .help("Feed the trigger pipeline from the real pointer instead of camera gaze.")
+      if model.isPointerSimulationEnabled {
+        HStack(spacing: 12) {
+          LabeledContent("Activation mode", value: modeLabel)
+          Button("Reset") { model.resetPreview() }
+            .help("Clear the sample history and return the trigger to idle.")
         }
       }
     }
   }
 
   @ViewBuilder
-  private var modifierControls: some View {
-    switch model.mode {
-    case .modifierHeld:
-      Text(
-        "Keep the pointer over the sample, hold the \(model.modifierKeyName) key, then release it to capture. Moving the pointer off the target cancels the hold."
-      )
-      .font(.caption)
-      .foregroundStyle(.secondary)
-    case .doubleBlink:
-      Text(
-        "Keep the pointer over the sample. Press B for a single blink, or D for a double blink to capture."
-      )
-      .font(.caption)
-      .foregroundStyle(.secondary)
-    case .passiveDwell:
-      Text("Hold the pointer still over the target until the dwell completes.")
-        .font(.caption)
-        .foregroundStyle(.secondary)
+  private var sourceFooter: some View {
+    if model.selectedSource == .pointerSimulation, model.isPointerSimulationEnabled {
+      VStack(alignment: .leading, spacing: 4) {
+        Text(modifierInstruction)
+        Text(
+          "Samples come from the latest real pointer position while it is over the target, at about 30 Hz."
+        )
+      }
     }
   }
 
-  private var pointerSimulationBinding: Binding<Bool> {
-    Binding(
-      get: { model.isPointerSimulationEnabled },
-      set: { model.setPointerSimulationEnabled($0) })
+  private var modifierInstruction: String {
+    switch model.mode {
+    case .modifierHeld:
+      "Keep the pointer over the sample, hold the \(model.modifierKeyName) key, then release it to capture. Moving the pointer off the target cancels the hold."
+    case .doubleBlink:
+      "Keep the pointer over the sample. Press B for a single blink, or D for a double blink to capture."
+    case .passiveDwell:
+      "Hold the pointer still over the target until the dwell completes."
+    }
+  }
+
+  /// Target and telemetry sit side by side so the reader can hover the reticle
+  /// and watch the trigger pipeline react in the same glance.
+  private var targetTelemetrySection: some View {
+    Section {
+      HStack(alignment: .top, spacing: 16) {
+        targetArea
+        telemetryPanel
+          .frame(width: 300, alignment: .topLeading)
+      }
+    } header: {
+      Text("Target")
+    }
   }
 
   private var targetArea: some View {
     GeometryReader { proxy in
       ZStack(alignment: .topLeading) {
-        RoundedRectangle(cornerRadius: 10)
-          .fill(.background)
-          .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.separator))
-
         VStack(alignment: .leading, spacing: 8) {
-          Text(model.sampleTitle).font(.callout.weight(.semibold))
+          HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(model.sampleTitle).font(.headline)
+            Spacer(minLength: 8)
+            Label("Hover or look at the reticle to sample", systemImage: "scope")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
           ScrollView {
             Text(verbatim: model.sampleCode)
               .font(.system(.body, design: .monospaced))
@@ -128,7 +175,7 @@ struct CalibrationPreviewView: View {
               .frame(maxWidth: .infinity, alignment: .leading)
           }
         }
-        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
 
         if let target = model.targetCenter {
           targetReticle.position(target)
@@ -152,7 +199,7 @@ struct CalibrationPreviewView: View {
       .onAppear { model.updateTargetSize(proxy.size) }
       .onChange(of: proxy.size) { _, size in model.updateTargetSize(size) }
     }
-    .frame(minWidth: 420, minHeight: 300)
+    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 280, maxHeight: 280)
   }
 
   private var targetReticle: some View {
@@ -164,27 +211,41 @@ struct CalibrationPreviewView: View {
   }
 
   private var telemetryPanel: some View {
-    GroupBox("Why it triggers") {
-      Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 6) {
-        row("Mode", modeLabel)
-        row("Source", model.selectedSource.title)
-        row("Tracking", trackingDescription)
-        row("Dwell", String(format: "%.1f s", model.dwellSeconds))
-        row(
-          "Dispersion",
-          String(format: "%.0f / %.0f", model.tracking.dispersion, model.dispersionThreshold))
-        row("Trigger state", model.triggerStateDescription)
-        row("Local captures", "\(model.tracking.localTriggerCount) (no provider request)")
-        row("Input", issueDescription(model.tracking.lastIssue))
-        if let error = model.measuredTargetError {
-          row("Measured error", String(format: "%.0f pt", error))
-        }
+    VStack(alignment: .leading, spacing: 8) {
+      Text("Why it triggers")
+        .font(.subheadline.weight(.semibold))
+      telemetryRow("Mode", modeLabel)
+      telemetryRow("Source", model.selectedSource.title)
+      telemetryRow("Tracking", trackingDescription)
+      telemetryRow("Dwell", String(format: "%.1f s", model.dwellSeconds))
+      telemetryRow(
+        "Dispersion",
+        String(format: "%.0f / %.0f", model.tracking.dispersion, model.dispersionThreshold))
+      telemetryRow("Trigger state", model.triggerStateDescription)
+      telemetryRow("Local captures", "\(model.tracking.localTriggerCount) (no provider request)")
+      telemetryRow("Input", issueDescription(model.tracking.lastIssue))
+      if let error = model.measuredTargetError {
+        telemetryRow("Measured error", String(format: "%.0f pt", error))
       }
-      .frame(maxWidth: .infinity, alignment: .leading)
+
       ProgressView(value: model.tracking.dwellProgress)
         .progressViewStyle(.linear)
       Text(dwellLabel)
         .font(.caption)
+        .monospacedDigit()
+        .foregroundStyle(.secondary)
+    }
+    .padding(12)
+    .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+  }
+
+  private func telemetryRow(_ label: String, _ value: String) -> some View {
+    LabeledContent {
+      Text(value)
+        .monospacedDigit()
+        .textSelection(.enabled)
+    } label: {
+      Text(label)
         .foregroundStyle(.secondary)
     }
   }
@@ -195,13 +256,6 @@ struct CalibrationPreviewView: View {
         format: "Last fixation: %.2f s across %d samples", fixation.duration, fixation.sampleCount)
     }
     return String(format: "Dwell progress: %.0f%%", model.tracking.dwellProgress * 100)
-  }
-
-  private func row(_ label: String, _ value: String) -> some View {
-    GridRow {
-      Text(label).foregroundStyle(.secondary)
-      Text(value).textSelection(.enabled)
-    }
   }
 
   private var modeLabel: String {
@@ -234,37 +288,15 @@ struct CalibrationPreviewView: View {
     }
   }
 
-  private var explanationPanel: some View {
-    GroupBox("Explanation") {
-      VStack(alignment: .leading, spacing: 8) {
-        Text(
-          "Local preview triggers never call the provider. Only Test Explanation sends the visible sample code as an image."
-        )
-        .font(.caption)
-        .foregroundStyle(.secondary)
-
-        explanationContent
-
-        HStack(spacing: 8) {
-          Button("Test Explanation") { model.requestTestExplanation() }
-            .disabled(!model.isExplanationAvailable || model.isExplanationLoading)
-          if model.isExplanationLoading {
-            Button("Cancel") { model.cancelExplanation() }
-          }
-          Spacer()
-          Button("Start Calibration") { model.startCalibration() }
-        }
-
-        if let message = model.explanationAvailabilityMessage {
-          Text(message)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-        Text(model.calibrationStatusMessage)
-          .font(.caption)
-          .foregroundStyle(.secondary)
-      }
-      .frame(maxWidth: .infinity, alignment: .leading)
+  private var explanationSection: some View {
+    Section {
+      explanationContent
+    } header: {
+      Text("Explanation")
+    } footer: {
+      Text(
+        "Local preview triggers never call the provider. Only Test Explanation sends the visible sample code as an image."
+      )
     }
   }
 

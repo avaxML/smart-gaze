@@ -2,9 +2,10 @@ import AppKit
 import SwiftUI
 
 @MainActor
-final class SettingsWindowController: NSObject, NSWindowDelegate {
+final class SettingsWindowController: NSObject, NSWindowDelegate, NSToolbarDelegate {
   private let model: SettingsModel
   private let preview: CalibrationPreviewModel
+  private let tabSelection = SettingsTabSelection()
   private var window: NSWindow?
   private var calibrationWindowController: CalibrationWindowController?
 
@@ -59,9 +60,16 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     if window == nil {
       window = makeWindow()
     }
-    window?.center()
     window?.makeKeyAndOrderFront(nil)
     NSApp.activate(ignoringOtherApps: true)
+  }
+
+  var screenshotWindow: NSWindow? { window }
+
+  func selectTab(at index: Int) {
+    guard let tab = SettingsTab(rawValue: index) else { return }
+    tabSelection.tab = tab
+    window?.toolbar?.selectedItemIdentifier = Self.identifier(for: tab)
   }
 
   func windowWillClose(_ notification: Notification) {
@@ -70,15 +78,74 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
   }
 
   private func makeWindow() -> NSWindow {
-    let hosting = NSHostingController(rootView: SettingsView(model: model, preview: preview))
+    let hosting = NSHostingController(
+      rootView: SettingsView(model: model, preview: preview, selection: tabSelection))
     let window = NSWindow(contentViewController: hosting)
     window.title = "SmartGaze Settings"
     window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-    window.contentMinSize = NSSize(width: 760, height: 400)
+    window.contentMinSize = NSSize(width: 760, height: 520)
+    window.setContentSize(NSSize(width: 800, height: 600))
     window.isReleasedWhenClosed = false
     window.delegate = self
     window.toolbarStyle = .preference
-    window.toolbar = NSToolbar()
+    window.toolbar = makeToolbar()
+    window.setFrameAutosaveName(Self.frameAutosaveName)
+    if !window.setFrameUsingName(Self.frameAutosaveName) {
+      window.center()
+    }
     return window
+  }
+
+  private func makeToolbar() -> NSToolbar {
+    let toolbar = NSToolbar(identifier: "SmartGazeSettingsToolbar")
+    toolbar.delegate = self
+    toolbar.displayMode = .iconAndLabel
+    toolbar.allowsUserCustomization = false
+    toolbar.autosavesConfiguration = false
+    toolbar.selectedItemIdentifier = Self.identifier(for: .general)
+    return toolbar
+  }
+
+  private static let frameAutosaveName = "SmartGazeSettingsWindow"
+
+  private static func identifier(for tab: SettingsTab) -> NSToolbarItem.Identifier {
+    NSToolbarItem.Identifier("SmartGazeSettingsTab.\(tab.rawValue)")
+  }
+
+  private static func tab(for identifier: NSToolbarItem.Identifier) -> SettingsTab? {
+    SettingsTab.allCases.first { SettingsWindowController.identifier(for: $0) == identifier }
+  }
+
+  func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+    SettingsTab.allCases.map(Self.identifier(for:))
+  }
+
+  func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+    SettingsTab.allCases.map(Self.identifier(for:))
+  }
+
+  func toolbarSelectableItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+    SettingsTab.allCases.map(Self.identifier(for:))
+  }
+
+  func toolbar(
+    _ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
+    willBeInsertedIntoToolbar flag: Bool
+  ) -> NSToolbarItem? {
+    guard let tab = Self.tab(for: itemIdentifier) else { return nil }
+    let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+    item.label = tab.title
+    item.paletteLabel = tab.title
+    item.toolTip = tab.title
+    item.image = NSImage(systemSymbolName: tab.symbolName, accessibilityDescription: tab.title)
+    item.target = self
+    item.action = #selector(selectToolbarTab(_:))
+    item.tag = tab.rawValue
+    return item
+  }
+
+  @objc private func selectToolbarTab(_ sender: NSToolbarItem) {
+    guard let tab = SettingsTab(rawValue: sender.tag) else { return }
+    tabSelection.tab = tab
   }
 }
