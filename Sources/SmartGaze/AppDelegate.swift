@@ -106,6 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
           try GazePipeline(
             faceMeshModelURL: ModelLocator.faceMeshModelURL(),
             blazeGazeModelURL: ModelLocator.blazeGazeModelURL(),
+            irisModelURL: ModelLocator.irisModelURLIfPresent(),
             verticalFieldOfViewDegrees: CameraGeometry.builtInVerticalFieldOfViewDegrees)
         }
       }.value

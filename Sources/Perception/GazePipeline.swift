@@ -26,11 +26,15 @@ public struct GazeEstimate: Equatable, Sendable {
   /// Whether the face-mesh input came from the previous frame's landmarks
   /// rather than a fresh Vision rectangle.
   public let usedTrackedCrop: Bool
+  /// The iris-landmark reading for this frame: `nil` when the iris model is not
+  /// configured or either eye crop was unavailable.
+  public let iris: IrisEstimate?
 
   public init(
     gaze: NormalizedGazePoint, faceDistanceCentimeters: Double, headYawRadians: Double = 0,
     headPitchRadians: Double = 0, faceOriginCentimeters: SIMD3<Double> = .zero,
-    cropRotationRadians: Double = 0, usedTrackedCrop: Bool = false
+    cropRotationRadians: Double = 0, usedTrackedCrop: Bool = false,
+    iris: IrisEstimate? = nil
   ) {
     self.gaze = gaze
     self.faceDistanceCentimeters = faceDistanceCentimeters
@@ -39,6 +43,43 @@ public struct GazeEstimate: Equatable, Sendable {
     self.faceOriginCentimeters = faceOriginCentimeters
     self.cropRotationRadians = cropRotationRadians
     self.usedTrackedCrop = usedTrackedCrop
+    self.iris = iris
+  }
+}
+
+/// One eye's iris-landmark reading. Points are top-left normalized frame
+/// coordinates.
+public struct EyeIrisEstimate: Equatable, Sendable {
+  public let irisCenter: CGPoint
+  public let irisDiameterPixels: Double
+  /// The 71 eye-contour and brow points.
+  public let contour: [CGPoint]
+  /// The 5 iris points: centre, horizontal extremes, vertical extremes.
+  public let irisPoints: [CGPoint]
+
+  public init(
+    irisCenter: CGPoint, irisDiameterPixels: Double, contour: [CGPoint], irisPoints: [CGPoint]
+  ) {
+    self.irisCenter = irisCenter
+    self.irisDiameterPixels = irisDiameterPixels
+    self.contour = contour
+    self.irisPoints = irisPoints
+  }
+}
+
+/// Both eyes' iris readings plus the depth their iris rulers agree on.
+public struct IrisEstimate: Equatable, Sendable {
+  public let imageLeftEye: EyeIrisEstimate
+  public let imageRightEye: EyeIrisEstimate
+  /// Mean of the two eyes' depths from the iris ruler, centimetres.
+  public let depthCentimetres: Double
+
+  public init(
+    imageLeftEye: EyeIrisEstimate, imageRightEye: EyeIrisEstimate, depthCentimetres: Double
+  ) {
+    self.imageLeftEye = imageLeftEye
+    self.imageRightEye = imageRightEye
+    self.depthCentimetres = depthCentimetres
   }
 }
 
@@ -60,6 +101,7 @@ public actor GazePipeline {
 
   private let faceMesh: FaceMeshEstimator
   private let blazeGaze: BlazeGazeEstimator
+  private let irisEstimator: IrisLandmarkEstimator?
   private var verticalFocalLengthPixels: Double?
   private var verticalFieldOfViewOverrideDegrees: Double?
   private var trackedLandmarks: [SIMD3<Double>]?
@@ -68,12 +110,19 @@ public actor GazePipeline {
   public init(
     faceMeshModelURL: URL,
     blazeGazeModelURL: URL,
+    irisModelURL: URL? = nil,
     computeUnits: MLComputeUnits = .all,
     verticalFocalLengthPixels: Double? = nil,
     verticalFieldOfViewDegrees: Double? = nil
   ) throws {
     self.faceMesh = try FaceMeshEstimator(modelURL: faceMeshModelURL, computeUnits: computeUnits)
     self.blazeGaze = try BlazeGazeEstimator(modelURL: blazeGazeModelURL, computeUnits: computeUnits)
+    if let irisModelURL {
+      self.irisEstimator = try IrisLandmarkEstimator(
+        modelURL: irisModelURL, computeUnits: computeUnits)
+    } else {
+      self.irisEstimator = nil
+    }
     // SMART_GAZE_VERTICAL_FOV_DEGREES lets the depth scale be corrected for a
     // camera whose field of view macOS will not report. The first live run
     // recorded 27.8 cm at the 60 degree default against a real distance near
@@ -157,6 +206,18 @@ public actor GazePipeline {
     trackedLandmarks = fullFrame.pixelSpace
     trackedFrameSize = frameSize
 
+    let iris: IrisEstimate?
+    if irisEstimator != nil {
+      let focalLengthPixels = resolvedVerticalFocalLengthPixels(
+        measured: effectiveVerticalFocalLengthPixels(frameHeight: frameSize.height),
+        imageHeight: Double(frameSize.height))
+      iris = try await irisEstimate(
+        from: source, fullFrame: fullFrame, frameSize: frameSize,
+        focalLengthPixels: focalLengthPixels)
+    } else {
+      iris = nil
+    }
+
     let eyeBand = try eyeBandRGB(
       from: source, landmarks: fullFrame.normalized, frameSize: frameSize)
 
@@ -176,7 +237,104 @@ public actor GazePipeline {
       headYawRadians: headYawRadians(from: headPose.headVector),
       headPitchRadians: headPitchRadians(from: headPose.headVector),
       faceOriginCentimeters: headPose.faceOrigin.centimetres,
-      cropRotationRadians: crop.rotationRadians, usedTrackedCrop: usedTrackedCrop)
+      cropRotationRadians: crop.rotationRadians, usedTrackedCrop: usedTrackedCrop,
+      iris: iris)
+  }
+
+  /// Runs the iris model on both eye crops. The image-right eye's landmarks
+  /// (362/263) feed a horizontally flipped crop, and its output is unflipped,
+  /// because the model was trained on left-eye-shaped crops and MediaPipe
+  /// mirrors the other eye rather than running a second model.
+  private func irisEstimate(
+    from source: some PixelSource,
+    fullFrame: FullFrameLandmarks,
+    frameSize: CGSize,
+    focalLengthPixels: Double
+  ) async throws -> IrisEstimate? {
+    guard let irisEstimator else { return nil }
+    guard
+      let imageLeftCrop = IrisGeometry.eyeCrop(
+        imageLeftCorner: fullFrame.pixelSpace[33],
+        imageRightCorner: fullFrame.pixelSpace[133]),
+      let imageRightCrop = IrisGeometry.eyeCrop(
+        imageLeftCorner: fullFrame.pixelSpace[362],
+        imageRightCorner: fullFrame.pixelSpace[263])
+    else { return nil }
+
+    guard
+      let imageLeft = try await eyeIrisEstimate(
+        from: source, crop: imageLeftCrop, flip: false, estimator: irisEstimator,
+        frameSize: frameSize, focalLengthPixels: focalLengthPixels),
+      let imageRight = try await eyeIrisEstimate(
+        from: source, crop: imageRightCrop, flip: true, estimator: irisEstimator,
+        frameSize: frameSize, focalLengthPixels: focalLengthPixels)
+    else { return nil }
+
+    return IrisEstimate(
+      imageLeftEye: imageLeft.estimate, imageRightEye: imageRight.estimate,
+      depthCentimetres: (imageLeft.depth + imageRight.depth) / 2)
+  }
+
+  private func eyeIrisEstimate(
+    from source: some PixelSource,
+    crop: FaceCrop,
+    flip: Bool,
+    estimator: IrisLandmarkEstimator,
+    frameSize: CGSize,
+    focalLengthPixels: Double
+  ) async throws -> (estimate: EyeIrisEstimate, depth: Double)? {
+    let cropPixelSize = IrisGeometry.cropPixelSize
+    let cropRGB = try croppedRGB(source, crop: crop, cropPixelSize: cropPixelSize)
+    let input =
+      flip
+      ? IrisGeometry.horizontallyFlipped(rgb: cropRGB, width: cropPixelSize, height: cropPixelSize)
+      : cropRGB
+    let result = try await estimator.landmarks(rgb: input)
+    guard let transform = crop.cropToFrame(cropPixelSize: Double(cropPixelSize)) else {
+      return nil
+    }
+
+    func framePoint(_ point: SIMD3<Float>) -> CGPoint? {
+      var cropPoint = SIMD3<Double>(Double(point.x), Double(point.y), Double(point.z))
+      if flip {
+        cropPoint = IrisGeometry.unflipped(cropPoint, width: cropPixelSize)
+      }
+      guard let mapped = transform.map(CGPoint(x: cropPoint.x, y: cropPoint.y)) else {
+        return nil
+      }
+      return CGPoint(x: Double(mapped.x), y: Double(mapped.y))
+    }
+
+    var contour: [CGPoint] = []
+    contour.reserveCapacity(result.contour.count)
+    for point in result.contour {
+      guard let mapped = framePoint(point) else { return nil }
+      contour.append(mapped)
+    }
+
+    var irisPoints: [CGPoint] = []
+    var irisPixels: [SIMD2<Double>] = []
+    irisPoints.reserveCapacity(result.iris.count)
+    irisPixels.reserveCapacity(result.iris.count)
+    for point in result.iris {
+      guard let mapped = framePoint(point) else { return nil }
+      irisPoints.append(mapped)
+      irisPixels.append(SIMD2(Double(mapped.x), Double(mapped.y)))
+    }
+    guard let irisCenter = irisPoints.first,
+      let diameterPixels = IrisGeometry.irisDiameter(irisPixels),
+      let depth = IrisGeometry.depthCentimetres(
+        irisDiameterPixels: diameterPixels, focalLengthPixels: focalLengthPixels)
+    else { return nil }
+
+    let width = Double(frameSize.width)
+    let height = Double(frameSize.height)
+    let estimate = EyeIrisEstimate(
+      irisCenter: CGPoint(x: irisCenter.x / width, y: irisCenter.y / height),
+      irisDiameterPixels: diameterPixels,
+      contour: contour.map { CGPoint(x: $0.x / width, y: $0.y / height) },
+      irisPoints: irisPoints.map { CGPoint(x: $0.x / width, y: $0.y / height) })
+    return (estimate, depth)
   }
 
   /// The only Vision call in the pipeline: bootstraps the crop from Vision's

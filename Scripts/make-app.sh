@@ -45,7 +45,7 @@ PLIST
 # already placed in Models/.
 if [ -d "$REPO_ROOT/Models" ]; then
   mkdir -p "$APP/Contents/Resources/Models"
-  for model in blazegaze.mlmodelc face-mesh/face_mesh.mlmodelc; do
+  for model in blazegaze.mlmodelc face-mesh/face_mesh.mlmodelc iris/iris_landmark_64x64_float32.mlmodelc; do
     if [ -d "$REPO_ROOT/Models/$model" ]; then
       mkdir -p "$APP/Contents/Resources/Models/$(dirname "$model")"
       cp -R "$REPO_ROOT/Models/$model" "$APP/Contents/Resources/Models/$model"

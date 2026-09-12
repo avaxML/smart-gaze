@@ -112,7 +112,7 @@ public let assumedVerticalFieldOfViewDegrees = 60.0
 /// passes it here directly. `nil`, zero, negative or non-finite falls back to
 /// `assumedVerticalFieldOfViewDegrees` converted against the frame's own height,
 /// which is exactly today's behaviour.
-func resolvedVerticalFocalLengthPixels(
+public func resolvedVerticalFocalLengthPixels(
   measured: Double?, imageHeight: Double
 ) -> Double {
   if let measured, measured.isFinite, measured > 0 {

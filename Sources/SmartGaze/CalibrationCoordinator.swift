@@ -52,6 +52,7 @@ final class CalibrationCoordinator {
       try GazePipeline(
         faceMeshModelURL: ModelLocator.faceMeshModelURL(),
         blazeGazeModelURL: ModelLocator.blazeGazeModelURL(),
+        irisModelURL: ModelLocator.irisModelURLIfPresent(),
         verticalFieldOfViewDegrees: CameraGeometry.builtInVerticalFieldOfViewDegrees)
     },
     camera: CameraController = CameraController(),
