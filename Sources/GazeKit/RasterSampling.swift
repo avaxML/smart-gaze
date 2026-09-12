@@ -95,6 +95,20 @@ public func warpedRGB(
   return output
 }
 
+/// The face-mesh model's input: `crop` resampled to a `cropPixelSize` square.
+/// Rotation 0 gives the same pixels as `resampledRGB` over the crop's rect.
+public func croppedRGB(
+  _ source: some PixelSource,
+  crop: FaceCrop,
+  cropPixelSize: Int
+) throws -> [Float] {
+  guard let transform = crop.frameToCrop(cropPixelSize: Double(cropPixelSize)) else {
+    throw RasterError.nonInvertibleTransform
+  }
+  return try warpedRGB(
+    source, transform: transform, width: cropPixelSize, height: cropPixelSize)
+}
+
 public struct ArrayPixelSource: PixelSource {
   public let width: Int
   public let height: Int

@@ -1,0 +1,21 @@
+name: Iris
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  iris:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch, verify and compile the pinned model
+        run: bash Scripts/fetch-iris.sh
+
+      - name: Run iris model integration tests
+        env:
+          SMART_GAZE_IRIS_TESTS: "1"
+          SMART_GAZE_IRIS_MODEL_PATH: Models/iris/iris_landmark_64x64_float32.mlmodelc
+        run: swift test --filter Iris

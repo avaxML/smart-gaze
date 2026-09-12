@@ -55,16 +55,22 @@ struct VideoGazeHarness {
     let arguments = CommandLine.arguments
     guard arguments.count >= 4 else {
       FileHandle.standardError.write(
-        "usage: video-gaze-harness <video> <face-mesh.mlmodelc> <blazegaze.mlmodelc> [maxFrames]\n"
+        "usage: video-gaze-harness <video> <face-mesh.mlmodelc> <blazegaze.mlmodelc> [maxFrames] [iris.mlmodelc]\n"
           .data(using: .utf8)!)
       exit(2)
     }
     let videoURL = URL(fileURLWithPath: arguments[1])
     let maxFrames = arguments.count > 4 ? Int(arguments[4]) ?? 200 : 200
+    let irisModelURL: URL? = {
+      guard arguments.count > 5 else { return nil }
+      let url = URL(fileURLWithPath: arguments[5])
+      return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }()
 
     let pipeline = try GazePipeline(
       faceMeshModelURL: URL(fileURLWithPath: arguments[2]),
       blazeGazeModelURL: URL(fileURLWithPath: arguments[3]),
+      irisModelURL: irisModelURL,
       computeUnits: .all)
 
     let asset = AVURLAsset(url: videoURL)
@@ -90,7 +96,15 @@ struct VideoGazeHarness {
     var ys: [Double] = []
     var times: [Double] = []
     var yaws: [Double] = []
+    var trackedCropFrames = 0
+    var cropRotations: [Double] = []
     var firstErrors: [String] = []
+    var irisFrames = 0
+    var leftIrisDiameters: [Double] = []
+    var rightIrisDiameters: [Double] = []
+    var irisDepths: [Double] = []
+    var baselineDepthsOnIrisFrames: [Double] = []
+    var impliedInterpupillaryCentimetres: [Double] = []
 
     while frames < maxFrames, let sample = output.copyNextSampleBuffer() {
       guard let borrowed = CMSampleBufferGetImageBuffer(sample),
@@ -105,6 +119,22 @@ struct VideoGazeHarness {
         ys.append(estimate.gaze.y)
         yaws.append(abs(estimate.headYawRadians))
         times.append(Double(frames) / 25.0)
+        if estimate.usedTrackedCrop { trackedCropFrames += 1 }
+        cropRotations.append(abs(estimate.cropRotationRadians))
+        if let iris = estimate.iris {
+          irisFrames += 1
+          leftIrisDiameters.append(iris.imageLeftEye.irisDiameterPixels)
+          rightIrisDiameters.append(iris.imageRightEye.irisDiameterPixels)
+          irisDepths.append(iris.depthCentimetres)
+          baselineDepthsOnIrisFrames.append(estimate.faceDistanceCentimeters)
+          if let implied = InterpupillaryFit.impliedCentimetres(
+            irisDepthCentimetres: iris.depthCentimetres,
+            baselineDepthCentimetres: estimate.faceDistanceCentimeters,
+            assumedCentimetres: estimate.assumedInterpupillaryCentimetres)
+          {
+            impliedInterpupillaryCentimetres.append(implied)
+          }
+        }
         produced += 1
       } catch let error as GazePipelineError {
         switch error {
@@ -125,6 +155,11 @@ struct VideoGazeHarness {
     print(
       "frames \(frames)  gaze \(produced)  noFace \(noFace)  lowPresence \(lowPresence)  errors \(otherErrors)"
     )
+    print("tracked crop frames \(trackedCropFrames)")
+    let meanRotationDegrees =
+      cropRotations.isEmpty
+      ? 0 : cropRotations.reduce(0, +) / Double(cropRotations.count) * 180 / .pi
+    print("mean |crop rotation| deg \(String(format: "%.4f", meanRotationDegrees))")
     for message in firstErrors { print("  first error: \(message)") }
     if !latencies.isEmpty {
       print(
@@ -150,6 +185,20 @@ struct VideoGazeHarness {
     print(
       "head |yaw| rad  p50 \(percentile(yaws, 0.5))  p90 \(percentile(yaws, 0.9))  p95 \(percentile(yaws, 0.95))  max \(percentile(yaws, 1))  "
         + "frames above 0.40: \(yaws.filter { $0 > 0.40 }.count) of \(yaws.count)")
+
+    print(
+      "iris frames \(irisFrames) of \(produced)  median diameter px  left \(String(format: "%.2f", percentile(leftIrisDiameters, 0.5)))  right \(String(format: "%.2f", percentile(rightIrisDiameters, 0.5)))"
+    )
+    print(
+      "median iris depth cm \(String(format: "%.1f", percentile(irisDepths, 0.5)))  median eye-baseline depth cm \(String(format: "%.1f", percentile(baselineDepthsOnIrisFrames, 0.5)))  (\(irisDepths.count) frames)"
+    )
+    let fittedInterpupillary = InterpupillaryFit.fit(
+      impliedCentimetres: impliedInterpupillaryCentimetres)
+    let fittedInterpupillaryText =
+      fittedInterpupillary.map { String(format: "%.2f", $0) } ?? "nil"
+    print(
+      "implied IPD cm  median \(String(format: "%.2f", percentile(impliedInterpupillaryCentimetres, 0.5)))  p05 \(String(format: "%.2f", percentile(impliedInterpupillaryCentimetres, 0.05)))  p95 \(String(format: "%.2f", percentile(impliedInterpupillaryCentimetres, 0.95)))  fit \(fittedInterpupillaryText)  (\(impliedInterpupillaryCentimetres.count) frames)"
+    )
 
     // Run the real filter and the real dispersion metric the trigger uses, so the
     // number reported here is comparable to the shipped threshold rather than a

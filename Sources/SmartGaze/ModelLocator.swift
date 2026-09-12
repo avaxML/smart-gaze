@@ -1,6 +1,6 @@
 import Foundation
 
-/// Resolves the two Core ML model files `GazePipeline` needs.
+/// Resolves the Core ML model files `GazePipeline` needs.
 ///
 /// Model artifacts are fetched by `Scripts/fetch-models.sh` into a gitignored
 /// `Models/` directory and are never committed, so there is no bundled
@@ -18,6 +18,19 @@ enum ModelLocator {
     resolve(
       environmentKey: "SMART_GAZE_MODEL_PATH",
       bundleRelativePath: "Models/blazegaze.mlmodelc")
+  }
+
+  static func irisModelURL() -> URL {
+    resolve(
+      environmentKey: "SMART_GAZE_IRIS_MODEL_PATH",
+      bundleRelativePath: "Models/iris/iris_landmark_64x64_float32.mlmodelc")
+  }
+
+  /// The iris model is optional: its absence turns iris landmarks off for every
+  /// frame rather than preventing the gaze pipeline from loading.
+  static func irisModelURLIfPresent() -> URL? {
+    let url = irisModelURL()
+    return FileManager.default.fileExists(atPath: url.path) ? url : nil
   }
 
   /// An explicit environment override wins, so a test or a developer can point

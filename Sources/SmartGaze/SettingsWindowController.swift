@@ -28,7 +28,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSToolbarDeleg
     let bounds = CGDisplayBounds(displayID)
     let pointsPerCentimeter = SettingsWindowController.pointsPerCentimeter(
       bounds: bounds, physicalMillimetres: CGDisplayScreenSize(displayID))
-    let coordinator = CalibrationCoordinator(bounds: bounds)
+    let coordinator = CalibrationCoordinator(
+      bounds: bounds,
+      interpupillaryCentimetres: model.settings.interpupillaryCentimetres)
     let controller = CalibrationWindowController(coordinator: coordinator)
     calibrationWindowController = controller
     controller.present { [weak self] result in
@@ -75,6 +77,20 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSToolbarDeleg
   func windowWillClose(_ notification: Notification) {
     preview.stop()
     model.settingsWindowWillClose()
+  }
+
+  /// The main display's calibration window while a run is live, for the
+  /// screenshot harness.
+  var calibrationScreenshotWindow: NSWindow? {
+    calibrationWindowController?.screenshotWindow
+  }
+
+  var isCalibrationSetupVisible: Bool {
+    calibrationWindowController?.isShowingSetupWithFace ?? false
+  }
+
+  func abortCalibration() {
+    calibrationWindowController?.abort()
   }
 
   private func makeWindow() -> NSWindow {

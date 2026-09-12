@@ -60,6 +60,32 @@ output shapes. Engine-owned output arrays are read through `MLMultiArray`
 subscripting so non-contiguous strides are honoured. Inputs are allocated by the
 estimator, so their storage is copied contiguously.
 
+## Crop convention
+
+The model was trained on square crops rotated so the eyes are level, so the
+pipeline feeds it a rotated square, not the axis-aligned Vision rectangle.
+
+- Seed crop: the first frame, and any frame whose tracked crop loses face
+  presence, uses `FaceCrop.seed`. Vision's normalized bottom-left face
+  rectangle is flipped to top-left frame pixels, expanded by
+  `expansionFactor = 1.5`, made square (`side = max(width, height) * 1.5`),
+  clamped into the frame, and left at rotation 0.
+- Tracking crop: every following frame re-crops from the previous frame's 468
+  full-frame pixel-space landmarks with `FaceCrop.tracking`. The rotation is
+  `atan2(p263.y - p33.y, p263.x - p33.x)` over the outer eye corners, folded
+  into `(-pi/2, pi/2]` so a mirrored frame still yields a near-level crop. The
+  center is the center of the landmarks' axis-aligned bounding box and
+  `side = max(boxWidth, boxHeight) * 1.5`, with no clamping to the frame.
+- Rotation sign: positive rotates the crop's x axis from +x toward +y, which
+  is clockwise on screen. `FaceCrop.cropToFrame` maps crop pixels to frame
+  pixels with `frame = center + R(rotation) * (p * scale - side / 2)`.
+- The crop is resampled to a 192-pixel square through the rotation with
+  `FaceCrop.frameToCrop` and `warpedRGB`; at rotation 0 the pixels match
+  `resampledRGB` over the crop's rect.
+- Vision runs only when the tracked crop's face presence drops below the
+  presence gate, or when there is no tracking state; on success the mapped
+  landmarks become the next frame's tracking state.
+
 ## Provenance and licence
 
 - The artifact is a third-party conversion of Google's MediaPipe FaceMesh,

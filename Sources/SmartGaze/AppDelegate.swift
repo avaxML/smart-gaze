@@ -75,6 +75,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     LaunchDiagnostics.record(.launchCompleted)
     if SettingsScreenshotHarness.isEnabled {
       Task { await SettingsScreenshotHarness.capture(windowController: settingsWindowController) }
+    } else if let directory = CalibrationSetupScreenshotHarness.outputDirectory {
+      Task {
+        await CalibrationSetupScreenshotHarness.capture(
+          windowController: settingsWindowController, outputDirectory: directory)
+      }
     } else if LaunchDiagnostics.isEnabled {
       toggleCamera()
     }
@@ -107,6 +112,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // switches it off, so they run detached and the wiring resumes here.
     pipelineGeneration += 1
     let generation = pipelineGeneration
+    let interpupillaryCentimetres =
+      settingsModel.settings.interpupillaryCentimetres ?? defaultInterpupillaryCentimetres
     Task { [weak self] in
       let loaded = await Task.detached(priority: .userInitiated) {
         () -> Result<GazePipeline, Error> in
@@ -114,7 +121,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
           try GazePipeline(
             faceMeshModelURL: ModelLocator.faceMeshModelURL(),
             blazeGazeModelURL: ModelLocator.blazeGazeModelURL(),
-            verticalFieldOfViewDegrees: CameraGeometry.builtInVerticalFieldOfViewDegrees)
+            irisModelURL: ModelLocator.irisModelURLIfPresent(),
+            verticalFieldOfViewDegrees: CameraGeometry.builtInVerticalFieldOfViewDegrees,
+            interpupillaryCentimetres: interpupillaryCentimetres)
         }
       }.value
       guard let self, self.pipelineGeneration == generation else { return }

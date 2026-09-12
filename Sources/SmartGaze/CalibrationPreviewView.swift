@@ -138,6 +138,8 @@ struct CalibrationPreviewView: View {
       "Keep the pointer over the sample, hold the \(model.modifierKeyName) key, then release it to capture. Moving the pointer off the target cancels the hold."
     case .doubleBlink:
       "Keep the pointer over the sample. Press B for a single blink, or D for a double blink to capture."
+    case .squint:
+      "Keep the pointer over the sample and press S to simulate a squint."
     case .passiveDwell:
       "Hold the pointer still over the target until the dwell completes."
     }
@@ -263,6 +265,7 @@ struct CalibrationPreviewView: View {
     case .modifierHeld: "Modifier held"
     case .passiveDwell: "Passive dwell"
     case .doubleBlink: "Double blink"
+    case .squint: "Squint"
     }
   }
 
@@ -285,6 +288,7 @@ struct CalibrationPreviewView: View {
       String(format: "out of bounds (%.0f, %.0f) rejected", point.x, point.y)
     case .nonMonotonicTimestamp: "non-monotonic timestamp rejected"
     case .blinkWhileUntracked: "blink ignored without tracking"
+    case .squintWhileUntracked: "squint ignored without tracking"
     }
   }
 

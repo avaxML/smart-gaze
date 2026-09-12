@@ -272,3 +272,59 @@ private func tightBurst(around target: NormalizedGazePoint) -> [NormalizedGazePo
   #expect(abs((result.faceOriginCentimeters?.y ?? 0) - expectedY) <= 1e-9)
   #expect(result.faceOriginCentimeters?.z == 60.0)
 }
+
+@Test func theResultCarriesTheMedianImpliedInterpupillaryOfTheAcceptedBursts() {
+  var run = makeRun()
+  let plan = CalibrationTargetPlan(inset: 0.1)
+  let recorded = [6.0, 6.1, 6.2, 6.3, 6.4, 6.5]
+  var accepted = 0
+
+  for target in plan.fitTargets {
+    run.recordImpliedInterpupillary(recorded[accepted % recorded.count])
+    accepted += 1
+    _ = run.submitBurst(tightBurst(around: target))
+  }
+  var finalOutcome: CalibrationSubmitOutcome?
+  for target in plan.validationTargets {
+    run.recordImpliedInterpupillary(recorded[accepted % recorded.count])
+    accepted += 1
+    finalOutcome = run.submitBurst(tightBurst(around: target))
+  }
+
+  guard case .completed(let result) = finalOutcome else {
+    Issue.record("expected a completed result, got \(String(describing: finalOutcome))")
+    return
+  }
+  // The recorded values cycle 6.0...6.5 across the 13 accepted bursts; the
+  // median of [6.0,6.0,6.0,6.1,6.1,6.2,6.2,6.3,6.3,6.4,6.4,6.5,6.5] is 6.2.
+  #expect(result.interpupillaryCentimetres == 6.2)
+}
+
+@Test func aRunWithFewerThanTheMinimumRecordedValuesHasNoImpliedInterpupillary() {
+  var run = makeRun()
+  let plan = CalibrationTargetPlan(inset: 0.1)
+  let recorded = [6.0, 6.1, 6.2]
+  var next = 0
+
+  for target in plan.fitTargets {
+    if next < recorded.count {
+      run.recordImpliedInterpupillary(recorded[next])
+      next += 1
+    }
+    _ = run.submitBurst(tightBurst(around: target))
+  }
+  var finalOutcome: CalibrationSubmitOutcome?
+  for target in plan.validationTargets {
+    if next < recorded.count {
+      run.recordImpliedInterpupillary(recorded[next])
+      next += 1
+    }
+    finalOutcome = run.submitBurst(tightBurst(around: target))
+  }
+
+  guard case .completed(let result) = finalOutcome else {
+    Issue.record("expected a completed result, got \(String(describing: finalOutcome))")
+    return
+  }
+  #expect(result.interpupillaryCentimetres == nil)
+}

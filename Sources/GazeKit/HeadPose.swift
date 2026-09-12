@@ -107,12 +107,17 @@ public struct MetricFaceOrigin: Equatable, Sendable {
 /// measurement; every depth this fallback produces carries that error.
 public let assumedVerticalFieldOfViewDegrees = 60.0
 
+/// The interpupillary distance the eye-baseline depth ruler assumes when the
+/// user has not calibrated one. Constant for a person, so one fitted value
+/// replaces it for every later frame.
+public let defaultInterpupillaryCentimetres = 6.3
+
 /// The focal length `metricFaceOrigin` actually needs, in pixels of vertical
 /// extent. A caller that read one from `kCMSampleBufferAttachmentKey_CameraIntrinsicMatrix`
 /// passes it here directly. `nil`, zero, negative or non-finite falls back to
 /// `assumedVerticalFieldOfViewDegrees` converted against the frame's own height,
 /// which is exactly today's behaviour.
-func resolvedVerticalFocalLengthPixels(
+public func resolvedVerticalFocalLengthPixels(
   measured: Double?, imageHeight: Double
 ) -> Double {
   if let measured, measured.isFinite, measured > 0 {
@@ -131,7 +136,7 @@ public func metricFaceOrigin(
   rightEyeCorners: (SIMD2<Double>, SIMD2<Double>),
   rotation: RigidRotation,
   imageSize: SIMD2<Double>,
-  assumedInterpupillaryCentimetres: Double = 6.3,
+  assumedInterpupillaryCentimetres: Double = defaultInterpupillaryCentimetres,
   verticalFocalLengthPixels: Double? = nil
 ) throws -> MetricFaceOrigin {
   let leftMid = (leftEyeCorners.0 + leftEyeCorners.1) / 2

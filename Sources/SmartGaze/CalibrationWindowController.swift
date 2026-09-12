@@ -13,6 +13,7 @@ final class CalibrationWindowController {
   private var windows: [NSWindow] = []
   private var escapeMonitor: Any?
   private let coordinator: CalibrationCoordinator
+  private var mainDisplayWindow: NSWindow?
 
   init(coordinator: CalibrationCoordinator) {
     self.coordinator = coordinator
@@ -22,11 +23,24 @@ final class CalibrationWindowController {
     GazeCoordinator.unionOfActiveDisplays()
   }
 
+  /// The main display's window, for an in-process screenshot harness.
+  var screenshotWindow: NSWindow? { mainDisplayWindow }
+
+  /// True while the setup visor is on screen with both a mesh and an iris
+  /// reading, which is the state a screenshot lever needs to capture.
+  var isShowingSetupWithFace: Bool {
+    guard case .setup = coordinator.phase, let face = coordinator.setupFace else { return false }
+    return !face.mesh.isEmpty && !face.imageLeftIris.isEmpty
+  }
+
   func present(onCompletion: @escaping (CalibrationResult?) -> Void) {
     let mainHeight = CGDisplayBounds(CGMainDisplayID()).height
+    let mainScreen = NSScreen.main ?? NSScreen.screens.first
     windows = NSScreen.screens.map { screen in
-      makeWindow(for: screen, mainDisplayHeight: mainHeight)
+      makeWindow(
+        for: screen, mainDisplayHeight: mainHeight, showsSetup: screen == mainScreen)
     }
+    mainDisplayWindow = windows.first { $0.screen == mainScreen } ?? windows.first
     for window in windows { window.orderFrontRegardless() }
 
     escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -42,6 +56,10 @@ final class CalibrationWindowController {
     coordinator.start()
   }
 
+  func abort() {
+    coordinator.abort()
+  }
+
   private func tearDown() {
     if let escapeMonitor {
       NSEvent.removeMonitor(escapeMonitor)
@@ -51,7 +69,9 @@ final class CalibrationWindowController {
     windows = []
   }
 
-  private func makeWindow(for screen: NSScreen, mainDisplayHeight: CGFloat) -> NSWindow {
+  private func makeWindow(
+    for screen: NSScreen, mainDisplayHeight: CGFloat, showsSetup: Bool
+  ) -> NSWindow {
     let window = NSPanel(
       contentRect: screen.frame,
       styleMask: [.nonactivatingPanel, .borderless],
@@ -78,7 +98,8 @@ final class CalibrationWindowController {
     }
 
     let hosting = NSHostingView(
-      rootView: CalibrationOverlayView(coordinator: coordinator, localTargetPoint: localTargetPoint)
+      rootView: CalibrationOverlayView(
+        coordinator: coordinator, localTargetPoint: localTargetPoint, showsSetup: showsSetup)
     )
     hosting.frame = CGRect(origin: .zero, size: screen.frame.size)
     window.contentView = hosting

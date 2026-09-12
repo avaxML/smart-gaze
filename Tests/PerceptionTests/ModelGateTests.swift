@@ -32,4 +32,20 @@ import Testing
   @Test func faceMeshGateIsEnabledOnlyByOne() {
     #expect(faceMeshTestsEnabled(["SMART_GAZE_FACE_MESH_TESTS": "1"]) == true)
   }
+
+  @Test func irisGateIsDisabledWhenVariableIsAbsent() {
+    #expect(irisTestsEnabled([:]) == false)
+  }
+
+  @Test func irisGateIsDisabledWhenVariableIsZero() {
+    #expect(irisTestsEnabled(["SMART_GAZE_IRIS_TESTS": "0"]) == false)
+  }
+
+  @Test func irisGateIsDisabledWhenVariableIsTrueText() {
+    #expect(irisTestsEnabled(["SMART_GAZE_IRIS_TESTS": "true"]) == false)
+  }
+
+  @Test func irisGateIsEnabledOnlyByOne() {
+    #expect(irisTestsEnabled(["SMART_GAZE_IRIS_TESTS": "1"]) == true)
+  }
 }

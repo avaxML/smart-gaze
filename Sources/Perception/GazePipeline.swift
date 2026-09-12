@@ -21,16 +21,74 @@ public struct GazeEstimate: Equatable, Sendable {
   public let headPitchRadians: Double
   /// Camera frame, centimetres: x image-right, y image-down, z away.
   public let faceOriginCentimeters: SIMD3<Double>
+  /// The crop's rotation about the image normal, radians.
+  public let cropRotationRadians: Double
+  /// Whether the face-mesh input came from the previous frame's landmarks
+  /// rather than a fresh Vision rectangle.
+  public let usedTrackedCrop: Bool
+  /// The iris-landmark reading for this frame: `nil` when the iris model is not
+  /// configured or either eye crop was unavailable.
+  public let iris: IrisEstimate?
+  /// The face-mesh landmarks, 468 top-left normalized frame points, for a
+  /// consumer that draws the mesh itself.
+  public let meshLandmarks: [CGPoint]
+  /// The interpupillary distance the eye-baseline depth was scaled by, so a
+  /// consumer can compute the user's implied value with `InterpupillaryFit`.
+  public let assumedInterpupillaryCentimetres: Double
 
   public init(
     gaze: NormalizedGazePoint, faceDistanceCentimeters: Double, headYawRadians: Double = 0,
-    headPitchRadians: Double = 0, faceOriginCentimeters: SIMD3<Double> = .zero
+    headPitchRadians: Double = 0, faceOriginCentimeters: SIMD3<Double> = .zero,
+    cropRotationRadians: Double = 0, usedTrackedCrop: Bool = false,
+    iris: IrisEstimate? = nil, meshLandmarks: [CGPoint] = [],
+    assumedInterpupillaryCentimetres: Double = defaultInterpupillaryCentimetres
   ) {
     self.gaze = gaze
     self.faceDistanceCentimeters = faceDistanceCentimeters
     self.headYawRadians = headYawRadians
     self.headPitchRadians = headPitchRadians
     self.faceOriginCentimeters = faceOriginCentimeters
+    self.cropRotationRadians = cropRotationRadians
+    self.usedTrackedCrop = usedTrackedCrop
+    self.iris = iris
+    self.meshLandmarks = meshLandmarks
+    self.assumedInterpupillaryCentimetres = assumedInterpupillaryCentimetres
+  }
+}
+
+/// One eye's iris-landmark reading. Points are top-left normalized frame
+/// coordinates.
+public struct EyeIrisEstimate: Equatable, Sendable {
+  public let irisCenter: CGPoint
+  public let irisDiameterPixels: Double
+  /// The 71 eye-contour and brow points.
+  public let contour: [CGPoint]
+  /// The 5 iris points: centre, horizontal extremes, vertical extremes.
+  public let irisPoints: [CGPoint]
+
+  public init(
+    irisCenter: CGPoint, irisDiameterPixels: Double, contour: [CGPoint], irisPoints: [CGPoint]
+  ) {
+    self.irisCenter = irisCenter
+    self.irisDiameterPixels = irisDiameterPixels
+    self.contour = contour
+    self.irisPoints = irisPoints
+  }
+}
+
+/// Both eyes' iris readings plus the depth their iris rulers agree on.
+public struct IrisEstimate: Equatable, Sendable {
+  public let imageLeftEye: EyeIrisEstimate
+  public let imageRightEye: EyeIrisEstimate
+  /// Mean of the two eyes' depths from the iris ruler, centimetres.
+  public let depthCentimetres: Double
+
+  public init(
+    imageLeftEye: EyeIrisEstimate, imageRightEye: EyeIrisEstimate, depthCentimetres: Double
+  ) {
+    self.imageLeftEye = imageLeftEye
+    self.imageRightEye = imageRightEye
+    self.depthCentimetres = depthCentimetres
   }
 }
 
@@ -38,10 +96,13 @@ public struct GazeEstimate: Equatable, Sendable {
 ///
 /// Owns both Core ML estimators and does the Core Video, Core ML and Vision
 /// work; every arithmetic step (the crop, the map-back, the eye band) is a
-/// pure `GazeKit` call. A missing face or a face-mesh score below
-/// `facePresenceThreshold` throws rather than returning a fabricated sample,
-/// because a neutral head vector or a Vision-landmark stand-in would look
-/// like a real reading downstream.
+/// pure `GazeKit` call. The first frame's crop is seeded from Vision's face
+/// rectangle; following frames re-crop from the previous frame's mesh
+/// landmarks, so the mesh reads the level, rotated crop it was trained on.
+/// Vision runs again only when the tracked crop's presence drops. A missing
+/// face or a face-mesh score below `facePresenceThreshold` throws rather than
+/// returning a fabricated sample, because a neutral head vector or a
+/// Vision-landmark stand-in would look like a real reading downstream.
 public actor GazePipeline {
   /// The face-mesh model's own presence gate (u08 plan §1.3: `sigmoid`,
   /// gate `>= 0.5`).
@@ -49,18 +110,31 @@ public actor GazePipeline {
 
   private let faceMesh: FaceMeshEstimator
   private let blazeGaze: BlazeGazeEstimator
+  private let irisEstimator: IrisLandmarkEstimator?
   private var verticalFocalLengthPixels: Double?
   private var verticalFieldOfViewOverrideDegrees: Double?
+  private let interpupillaryCentimetres: Double
+  private var trackedLandmarks: [SIMD3<Double>]?
+  private var trackedFrameSize: CGSize?
 
   public init(
     faceMeshModelURL: URL,
     blazeGazeModelURL: URL,
+    irisModelURL: URL? = nil,
     computeUnits: MLComputeUnits = .all,
     verticalFocalLengthPixels: Double? = nil,
-    verticalFieldOfViewDegrees: Double? = nil
+    verticalFieldOfViewDegrees: Double? = nil,
+    interpupillaryCentimetres: Double = defaultInterpupillaryCentimetres
   ) throws {
     self.faceMesh = try FaceMeshEstimator(modelURL: faceMeshModelURL, computeUnits: computeUnits)
     self.blazeGaze = try BlazeGazeEstimator(modelURL: blazeGazeModelURL, computeUnits: computeUnits)
+    if let irisModelURL {
+      self.irisEstimator = try IrisLandmarkEstimator(
+        modelURL: irisModelURL, computeUnits: computeUnits)
+    } else {
+      self.irisEstimator = nil
+    }
+    self.interpupillaryCentimetres = interpupillaryCentimetres
     // SMART_GAZE_VERTICAL_FOV_DEGREES lets the depth scale be corrected for a
     // camera whose field of view macOS will not report. The first live run
     // recorded 27.8 cm at the 60 degree default against a real distance near
@@ -98,30 +172,63 @@ public actor GazePipeline {
 
     let frameSize = CGSize(
       width: CVPixelBufferGetWidth(pixelBuffer), height: CVPixelBufferGetHeight(pixelBuffer))
-    guard let boundingBox = try Self.detectFaceBoundingBox(in: pixelBuffer) else {
-      throw GazePipelineError.noFaceDetected
-    }
-    guard
-      let cropRect = FaceCropGeometry.expandedFaceCrop(
-        visionBoundingBox: boundingBox, frameSize: frameSize)
-    else {
-      throw GazePipelineError.cropUnavailable
-    }
-
     let source = try CVPixelBufferSource(pixelBuffer: pixelBuffer)
-    let cropRGB = try resampledRGB(
-      source, from: cropRect, width: FaceMeshInput.width, height: FaceMeshInput.height)
-    let meshResult = try await faceMesh.landmarks(rgb: cropRGB)
 
-    guard meshResult.facePresence >= Self.facePresenceThreshold else {
-      throw GazePipelineError.facePresenceTooLow(meshResult.facePresence)
+    var trackedResult: (crop: FaceCrop, mesh: FaceMeshResult)?
+    if let landmarks = trackedLandmarks, trackedFrameSize == frameSize,
+      let trackedCrop = FaceCrop.tracking(landmarks: landmarks, frameSize: frameSize)
+    {
+      let cropRGB = try croppedRGB(
+        source, crop: trackedCrop, cropPixelSize: FaceMeshInput.width)
+      let mesh = try await faceMesh.landmarks(rgb: cropRGB)
+      if mesh.facePresence >= Self.facePresenceThreshold {
+        trackedResult = (trackedCrop, mesh)
+      }
     }
+
+    let crop: FaceCrop
+    let meshResult: FaceMeshResult
+    if let trackedResult {
+      crop = trackedResult.crop
+      meshResult = trackedResult.mesh
+    } else {
+      trackedLandmarks = nil
+      guard let boundingBox = try Self.detectFaceBoundingBox(in: pixelBuffer) else {
+        throw GazePipelineError.noFaceDetected
+      }
+      guard let seeded = FaceCrop.seed(visionBoundingBox: boundingBox, frameSize: frameSize) else {
+        throw GazePipelineError.cropUnavailable
+      }
+      let cropRGB = try croppedRGB(source, crop: seeded, cropPixelSize: FaceMeshInput.width)
+      let mesh = try await faceMesh.landmarks(rgb: cropRGB)
+      guard mesh.facePresence >= Self.facePresenceThreshold else {
+        throw GazePipelineError.facePresenceTooLow(mesh.facePresence)
+      }
+      crop = seeded
+      meshResult = mesh
+    }
+    let usedTrackedCrop = trackedResult != nil
 
     let fullFrame = try mapCropLandmarksToFrame(
       cropLandmarks: meshResult.landmarks,
       cropPixelSize: Double(FaceMeshInput.width),
-      cropRect: cropRect,
+      crop: crop,
       frameSize: frameSize)
+
+    trackedLandmarks = fullFrame.pixelSpace
+    trackedFrameSize = frameSize
+
+    let iris: IrisEstimate?
+    if irisEstimator != nil {
+      let focalLengthPixels = resolvedVerticalFocalLengthPixels(
+        measured: effectiveVerticalFocalLengthPixels(frameHeight: frameSize.height),
+        imageHeight: Double(frameSize.height))
+      iris = try await irisEstimate(
+        from: source, fullFrame: fullFrame, frameSize: frameSize,
+        focalLengthPixels: focalLengthPixels)
+    } else {
+      iris = nil
+    }
 
     let eyeBand = try eyeBandRGB(
       from: source, landmarks: fullFrame.normalized, frameSize: frameSize)
@@ -129,7 +236,8 @@ public actor GazePipeline {
     let headPose = try headPoseInputs(
       landmarks: fullFrame.pixelSpace,
       imageSize: SIMD2(Double(frameSize.width), Double(frameSize.height)),
-      verticalFocalLengthPixels: effectiveVerticalFocalLengthPixels(frameHeight: frameSize.height))
+      verticalFocalLengthPixels: effectiveVerticalFocalLengthPixels(frameHeight: frameSize.height),
+      interpupillaryCentimetres: interpupillaryCentimetres)
 
     let blazeInput = try BlazeGazeInput(
       eyeBandRGB: eyeBand,
@@ -141,7 +249,106 @@ public actor GazePipeline {
       gaze: gaze, faceDistanceCentimeters: headPose.faceOrigin.centimetres.z,
       headYawRadians: headYawRadians(from: headPose.headVector),
       headPitchRadians: headPitchRadians(from: headPose.headVector),
-      faceOriginCentimeters: headPose.faceOrigin.centimetres)
+      faceOriginCentimeters: headPose.faceOrigin.centimetres,
+      cropRotationRadians: crop.rotationRadians, usedTrackedCrop: usedTrackedCrop,
+      iris: iris, meshLandmarks: fullFrame.normalized,
+      assumedInterpupillaryCentimetres: interpupillaryCentimetres)
+  }
+
+  /// Runs the iris model on both eye crops. The image-right eye's landmarks
+  /// (362/263) feed a horizontally flipped crop, and its output is unflipped,
+  /// because the model was trained on left-eye-shaped crops and MediaPipe
+  /// mirrors the other eye rather than running a second model.
+  private func irisEstimate(
+    from source: some PixelSource,
+    fullFrame: FullFrameLandmarks,
+    frameSize: CGSize,
+    focalLengthPixels: Double
+  ) async throws -> IrisEstimate? {
+    guard let irisEstimator else { return nil }
+    guard
+      let imageLeftCrop = IrisGeometry.eyeCrop(
+        imageLeftCorner: fullFrame.pixelSpace[33],
+        imageRightCorner: fullFrame.pixelSpace[133]),
+      let imageRightCrop = IrisGeometry.eyeCrop(
+        imageLeftCorner: fullFrame.pixelSpace[362],
+        imageRightCorner: fullFrame.pixelSpace[263])
+    else { return nil }
+
+    guard
+      let imageLeft = try await eyeIrisEstimate(
+        from: source, crop: imageLeftCrop, flip: false, estimator: irisEstimator,
+        frameSize: frameSize, focalLengthPixels: focalLengthPixels),
+      let imageRight = try await eyeIrisEstimate(
+        from: source, crop: imageRightCrop, flip: true, estimator: irisEstimator,
+        frameSize: frameSize, focalLengthPixels: focalLengthPixels)
+    else { return nil }
+
+    return IrisEstimate(
+      imageLeftEye: imageLeft.estimate, imageRightEye: imageRight.estimate,
+      depthCentimetres: (imageLeft.depth + imageRight.depth) / 2)
+  }
+
+  private func eyeIrisEstimate(
+    from source: some PixelSource,
+    crop: FaceCrop,
+    flip: Bool,
+    estimator: IrisLandmarkEstimator,
+    frameSize: CGSize,
+    focalLengthPixels: Double
+  ) async throws -> (estimate: EyeIrisEstimate, depth: Double)? {
+    let cropPixelSize = IrisGeometry.cropPixelSize
+    let cropRGB = try croppedRGB(source, crop: crop, cropPixelSize: cropPixelSize)
+    let input =
+      flip
+      ? IrisGeometry.horizontallyFlipped(rgb: cropRGB, width: cropPixelSize, height: cropPixelSize)
+      : cropRGB
+    let result = try await estimator.landmarks(rgb: input)
+    guard let transform = crop.cropToFrame(cropPixelSize: Double(cropPixelSize)) else {
+      return nil
+    }
+
+    func framePoint(_ point: SIMD3<Float>) -> CGPoint? {
+      var cropPoint = SIMD3<Double>(Double(point.x), Double(point.y), Double(point.z))
+      if flip {
+        cropPoint = IrisGeometry.unflipped(cropPoint, width: cropPixelSize)
+      }
+      guard let mapped = transform.map(CGPoint(x: cropPoint.x, y: cropPoint.y)) else {
+        return nil
+      }
+      return CGPoint(x: Double(mapped.x), y: Double(mapped.y))
+    }
+
+    var contour: [CGPoint] = []
+    contour.reserveCapacity(result.contour.count)
+    for point in result.contour {
+      guard let mapped = framePoint(point) else { return nil }
+      contour.append(mapped)
+    }
+
+    var irisPoints: [CGPoint] = []
+    var irisPixels: [SIMD2<Double>] = []
+    irisPoints.reserveCapacity(result.iris.count)
+    irisPixels.reserveCapacity(result.iris.count)
+    for point in result.iris {
+      guard let mapped = framePoint(point) else { return nil }
+      irisPoints.append(mapped)
+      irisPixels.append(SIMD2(Double(mapped.x), Double(mapped.y)))
+    }
+    guard let irisCenter = irisPoints.first,
+      let diameterPixels = IrisGeometry.irisDiameter(irisPixels),
+      let depth = IrisGeometry.depthCentimetres(
+        irisDiameterPixels: diameterPixels, focalLengthPixels: focalLengthPixels)
+    else { return nil }
+
+    let width = Double(frameSize.width)
+    let height = Double(frameSize.height)
+    let estimate = EyeIrisEstimate(
+      irisCenter: CGPoint(x: irisCenter.x / width, y: irisCenter.y / height),
+      irisDiameterPixels: diameterPixels,
+      contour: contour.map { CGPoint(x: $0.x / width, y: $0.y / height) },
+      irisPoints: irisPoints.map { CGPoint(x: $0.x / width, y: $0.y / height) })
+    return (estimate, depth)
   }
 
   /// The only Vision call in the pipeline: bootstraps the crop from Vision's

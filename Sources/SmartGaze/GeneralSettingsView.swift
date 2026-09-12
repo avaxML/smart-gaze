@@ -107,6 +107,7 @@ struct GeneralSettingsView: View {
     case .modifierHeld: "Modifier held"
     case .passiveDwell: "Passive dwell"
     case .doubleBlink: "Double blink"
+    case .squint: "Squint"
     }
   }
 }

@@ -44,6 +44,9 @@ public struct Settings: Codable, Equatable, Sendable {
   public var calibrationDistanceCentimeters: Double?
   public var calibratedBounds: CGRect?
   public var headTranslationCorrection: HeadTranslationCorrection?
+  /// The user's fitted interpupillary distance, centimetres; `nil` until a
+  /// calibration has measured one.
+  public var interpupillaryCentimetres: Double?
 
   private enum CodingKeys: String, CodingKey {
     case dwellSeconds
@@ -60,6 +63,7 @@ public struct Settings: Codable, Equatable, Sendable {
     case calibrationDistanceCentimeters
     case calibratedBounds
     case headTranslationCorrection
+    case interpupillaryCentimetres
   }
 
   public init(from decoder: Decoder) throws {
@@ -83,6 +87,8 @@ public struct Settings: Codable, Equatable, Sendable {
     calibratedBounds = try? container.decode(CGRect.self, forKey: .calibratedBounds)
     headTranslationCorrection = try? container.decode(
       HeadTranslationCorrection.self, forKey: .headTranslationCorrection)
+    interpupillaryCentimetres = try container.decodeIfPresent(
+      Double.self, forKey: .interpupillaryCentimetres)
   }
 
   public init(
@@ -99,7 +105,8 @@ public struct Settings: Codable, Equatable, Sendable {
     calibrationMap: CalibrationMap? = nil,
     calibrationDistanceCentimeters: Double? = nil,
     calibratedBounds: CGRect? = nil,
-    headTranslationCorrection: HeadTranslationCorrection? = nil
+    headTranslationCorrection: HeadTranslationCorrection? = nil,
+    interpupillaryCentimetres: Double? = nil
   ) {
     self.dwellSeconds = dwellSeconds
     self.dispersionThreshold = dispersionThreshold
@@ -115,6 +122,7 @@ public struct Settings: Codable, Equatable, Sendable {
     self.calibrationDistanceCentimeters = calibrationDistanceCentimeters
     self.calibratedBounds = calibratedBounds
     self.headTranslationCorrection = headTranslationCorrection
+    self.interpupillaryCentimetres = interpupillaryCentimetres
   }
 
   /// Calm end of the range by default: the user asked for smooth motion and

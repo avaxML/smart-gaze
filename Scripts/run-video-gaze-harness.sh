@@ -6,6 +6,7 @@ readonly VIDEO="${1:-${SMART_GAZE_VIDEO:-}}"
 readonly FACE_MESH="${2:-${SMART_GAZE_FACE_MESH_MODEL_PATH:-${REPO_ROOT}/Models/face_mesh.mlmodelc}}"
 readonly BLAZEGAZE="${3:-${SMART_GAZE_MODEL_PATH:-${REPO_ROOT}/Models/blazegaze.mlmodelc}}"
 readonly MAX_FRAMES="${4:-200}"
+readonly IRIS="${SMART_GAZE_IRIS_MODEL_PATH:-${REPO_ROOT}/Models/iris/iris_landmark_64x64_float32.mlmodelc}"
 
 if [[ -z "${VIDEO}" || ! -f "${VIDEO}" ]]; then
   echo "usage: $0 <video.mp4> [face_mesh.mlmodelc] [blazegaze.mlmodelc] [maxFrames]" >&2
@@ -38,4 +39,9 @@ swiftc -O -parse-as-library \
   -framework Vision \
   -framework AVFoundation \
   -framework CoreGraphics
-"${binary}" "${VIDEO}" "${FACE_MESH}" "${BLAZEGAZE}" "${MAX_FRAMES}"
+
+args=("${VIDEO}" "${FACE_MESH}" "${BLAZEGAZE}" "${MAX_FRAMES}")
+if [[ -d "${IRIS}" ]]; then
+  args+=("${IRIS}")
+fi
+"${binary}" "${args[@]}"

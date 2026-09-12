@@ -5,10 +5,12 @@ import GazeKit
 import Observation
 import Providers
 
-/// A local key command that simulates a blink while the preview is active.
+/// A local key command that simulates a trigger gesture while the preview is
+/// active.
 enum SimulationCommand: Equatable, Sendable {
   case singleBlink
   case doubleBlink
+  case squint
 }
 
 /// Everything the preview needs that does not live in `Settings`.
@@ -277,6 +279,11 @@ final class CalibrationPreviewModel {
     tracking.handle(.blink(event, clock()))
   }
 
+  func simulateSquint() {
+    guard isPointerSimulationEnabled else { return }
+    tracking.handle(.squint(clock()))
+  }
+
   func resetPreview() {
     simulatedModifierHeld = false
     isHoveringTarget = false
@@ -312,12 +319,15 @@ final class CalibrationPreviewModel {
     return true
   }
 
-  /// Local key-bridge entry point for `B`/`D` in double-blink mode.
+  /// Local key-bridge entry point for `B`/`D` in double-blink mode and `S` in
+  /// squint mode.
   func handleSimulationCommand(_ command: SimulationCommand) -> Bool {
-    guard isSimulationInputActive, mode == .doubleBlink, isHoveringTarget else { return false }
-    switch command {
-    case .singleBlink: simulateBlink(.blink)
-    case .doubleBlink: simulateBlink(.doubleBlink)
+    guard isSimulationInputActive, isHoveringTarget else { return false }
+    switch (mode, command) {
+    case (.doubleBlink, .singleBlink): simulateBlink(.blink)
+    case (.doubleBlink, .doubleBlink): simulateBlink(.doubleBlink)
+    case (.squint, .squint): simulateSquint()
+    default: return false
     }
     return true
   }

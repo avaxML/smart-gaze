@@ -9,6 +9,7 @@ public enum TrackingPreviewInput: Equatable, Sendable {
   case modifierDown(TimeInterval)
   case modifierUp(TimeInterval)
   case blink(BlinkEvent, TimeInterval)
+  case squint(TimeInterval)
   case presentationEnded(TimeInterval)
   case reset
 }
@@ -20,6 +21,7 @@ public enum TrackingPreviewIssue: Equatable, Sendable {
   case outOfBoundsSample(CGPoint, timestamp: TimeInterval)
   case nonMonotonicTimestamp(previous: TimeInterval, received: TimeInterval)
   case blinkWhileUntracked(timestamp: TimeInterval)
+  case squintWhileUntracked(timestamp: TimeInterval)
 }
 
 /// A pure reducer over the real `FixationDetector` and `TriggerMachine`.
@@ -86,6 +88,8 @@ public struct TrackingPreview: Sendable {
       return apply(machine.handle(.modifierUp(time)))
     case .blink(let event, let time):
       return handleBlink(event, at: time)
+    case .squint(let time):
+      return handleSquint(at: time)
     case .presentationEnded(let time):
       guard advance(to: time) else { return [] }
       return apply(machine.handle(.presentationEnded(time)))
@@ -167,6 +171,17 @@ public struct TrackingPreview: Sendable {
       return []
     }
     return apply(machine.handle(.blink(event, time)))
+  }
+
+  private mutating func handleSquint(at time: TimeInterval) -> [TriggerEffect] {
+    guard advance(to: time) else { return [] }
+    // As with a blink, the machine keeps the last gaze point across
+    // `faceLost`, so a squint after a loss would capture a stale point.
+    guard isTracking, lastGazePoint != nil else {
+      lastIssue = .squintWhileUntracked(timestamp: time)
+      return []
+    }
+    return apply(machine.handle(.squint(time)))
   }
 
   /// Drops the live gaze, the fixation buffer and any arming. Used for tracking

@@ -137,3 +137,53 @@ private func solveCalibrationFixture(scale: Double = 1) throws -> CalibrationMap
     SettingsWindowController.pointsPerCentimeter(
       bounds: CGRect(x: 0, y: 0, width: 1728, height: 1117), physicalMillimetres: .zero) == nil)
 }
+
+@Test func setupFaceMapsMeshIrisContoursAndTheIrisDepth() {
+  let mesh = (0..<468).map { index in
+    CGPoint(x: Double(index) / 468, y: Double(index % 3) / 3)
+  }
+  let contour = (0..<71).map { index in
+    CGPoint(x: Double(index) / 71, y: 0.5)
+  }
+  let irisPoints = [
+    CGPoint(x: 0.4, y: 0.5),
+    CGPoint(x: 0.45, y: 0.5),
+    CGPoint(x: 0.4, y: 0.55),
+    CGPoint(x: 0.35, y: 0.5),
+    CGPoint(x: 0.4, y: 0.45),
+  ]
+  let leftEye = EyeIrisEstimate(
+    irisCenter: irisPoints[0], irisDiameterPixels: 12, contour: contour, irisPoints: irisPoints)
+  let rightEye = EyeIrisEstimate(
+    irisCenter: irisPoints[0], irisDiameterPixels: 12, contour: contour, irisPoints: irisPoints)
+  let estimate = GazeEstimate(
+    gaze: NormalizedGazePoint(x: 0, y: 0),
+    faceDistanceCentimeters: 50,
+    iris: IrisEstimate(imageLeftEye: leftEye, imageRightEye: rightEye, depthCentimetres: 61.5),
+    meshLandmarks: mesh)
+
+  let face = CalibrationCoordinator.setupFace(from: estimate)
+
+  #expect(face.mesh.count == 468)
+  #expect(face.imageLeftEyeContour.count == 71)
+  #expect(face.imageRightEyeContour.count == 71)
+  #expect(face.imageLeftIris.count == 5)
+  #expect(face.imageRightIris.count == 5)
+  #expect(face.depthCentimetres == 61.5)
+}
+
+@Test func setupFaceUsesEmptyContoursAndTheBaselineDepthWithoutIris() {
+  let estimate = GazeEstimate(
+    gaze: NormalizedGazePoint(x: 0, y: 0),
+    faceDistanceCentimeters: 52.5,
+    meshLandmarks: [CGPoint(x: 0.5, y: 0.5)])
+
+  let face = CalibrationCoordinator.setupFace(from: estimate)
+
+  #expect(face.mesh.count == 1)
+  #expect(face.imageLeftEyeContour.isEmpty)
+  #expect(face.imageRightEyeContour.isEmpty)
+  #expect(face.imageLeftIris.isEmpty)
+  #expect(face.imageRightIris.isEmpty)
+  #expect(face.depthCentimetres == 52.5)
+}
