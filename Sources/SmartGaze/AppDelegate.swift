@@ -16,8 +16,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var actionItem: NSMenuItem!
   private var statusLineItem: NSMenuItem!
 
-  private let settingsStore = UserDefaultsSettingsStore()
-  private let secrets = KeychainStore()
+  private let settingsStore: SettingsStore =
+    SettingsScreenshotHarness.isEnabled
+    ? SettingsScreenshotHarness.makeSettingsStore() : UserDefaultsSettingsStore()
+  private let secrets: any SecretStore & SecretPresence =
+    SettingsScreenshotHarness.isEnabled
+    ? SettingsScreenshotHarness.makeSecrets() : KeychainStore()
   private let camera = CameraController()
   private let captureActivity = CaptureActivity()
   private let bubble = BubbleController()
@@ -60,7 +64,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     refreshMenu()
     LaunchDiagnostics.record(.launchCompleted)
-    if LaunchDiagnostics.isEnabled { toggleCamera() }
+    if SettingsScreenshotHarness.isEnabled {
+      Task { await SettingsScreenshotHarness.capture(windowController: settingsWindowController) }
+    } else if LaunchDiagnostics.isEnabled {
+      toggleCamera()
+    }
   }
 
   private func handleFrame(_ frame: CameraFrame) {
