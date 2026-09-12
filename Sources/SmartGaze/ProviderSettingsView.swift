@@ -15,16 +15,14 @@ struct ProviderSettingsView: View {
         }
       }
 
-      Section("Configuration") {
+      Section("Endpoint") {
         TextField("Model", text: model.binding(for: \.model, kind: model.activeProvider))
-      }
-
-      Section("Base URL") {
         HStack {
           TextField("Base URL", text: model.baseURLBinding())
             .focused($baseURLFocused)
             .onSubmit { model.commitBaseURL() }
           Button("Apply") { model.commitBaseURL() }
+            .controlSize(.small)
             .disabled(model.baseURLError != nil)
         }
         .onChange(of: baseURLFocused) { _, focused in
@@ -42,22 +40,26 @@ struct ProviderSettingsView: View {
           Button("Save Key") { model.saveKey() }
             .disabled(model.keyEntry.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
           if model.hasStoredKey {
-            Text("A key is stored").foregroundStyle(.secondary)
+            Label("A key is stored", systemImage: "checkmark.seal.fill")
+              .foregroundStyle(.green)
           } else {
-            Text("No key stored").foregroundStyle(.secondary)
+            Label("No key stored", systemImage: "key")
+              .foregroundStyle(.secondary)
           }
         }
       }
 
       Section {
-        Button("Test Connection") { model.testConnection() }
-          .disabled(!model.canTestConnection)
+        HStack {
+          Button("Test Connection") { model.testConnection() }
+            .disabled(!model.canTestConnection)
+          connectionStatus
+        }
         if !model.canTestConnection, model.connectionStatus != .testing {
           Text("Save the key and apply the base URL before testing.")
-            .font(.callout)
+            .font(.caption)
             .foregroundStyle(.secondary)
         }
-        connectionStatus
       }
     }
     .formStyle(.grouped)
