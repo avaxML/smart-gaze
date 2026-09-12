@@ -30,30 +30,24 @@ public enum FaceMeshMapBackError: Error, Equatable {
 ///   - cropLandmarks: Landmarks in the model's crop-pixel space.
 ///   - cropPixelSize: The model's square crop side, in crop pixels (192 for
 ///     the pinned face-mesh model).
-///   - cropRect: The crop's rectangle in full-frame pixels, top-left origin.
-///     Width and height need not match each other or the frame's aspect.
+///   - crop: The crop the model read, in full-frame pixels, top-left origin.
 ///   - frameSize: Positive full-frame dimensions in pixels.
 public func mapCropLandmarksToFrame(
   cropLandmarks: [SIMD3<Float>],
   cropPixelSize: Double,
-  cropRect: CGRect,
+  crop: FaceCrop,
   frameSize: CGSize
 ) throws -> FullFrameLandmarks {
   guard cropPixelSize.isFinite, cropPixelSize > 0 else { throw FaceMeshMapBackError.invalidCrop }
   guard
-    cropRect.origin.x.isFinite, cropRect.origin.y.isFinite,
-    cropRect.width.isFinite, cropRect.height.isFinite,
-    cropRect.width > 0, cropRect.height > 0
-  else { throw FaceMeshMapBackError.invalidCrop }
-  guard
     frameSize.width.isFinite, frameSize.height.isFinite,
     frameSize.width > 0, frameSize.height > 0
   else { throw FaceMeshMapBackError.invalidFrame }
+  guard let transform = crop.cropToFrame(cropPixelSize: cropPixelSize) else {
+    throw FaceMeshMapBackError.invalidCrop
+  }
 
-  let originX = Double(cropRect.origin.x)
-  let originY = Double(cropRect.origin.y)
-  let scaleX = Double(cropRect.width) / cropPixelSize
-  let scaleY = Double(cropRect.height) / cropPixelSize
+  let scale = crop.scale(cropPixelSize: cropPixelSize)
   let width = Double(frameSize.width)
   let height = Double(frameSize.height)
 
@@ -63,9 +57,12 @@ public func mapCropLandmarksToFrame(
   pixelSpace.reserveCapacity(cropLandmarks.count)
 
   for landmark in cropLandmarks {
-    let pixelX = originX + Double(landmark.x) * scaleX
-    let pixelY = originY + Double(landmark.y) * scaleY
-    let pixelZ = Double(landmark.z) * scaleX
+    guard
+      let mapped = transform.map(CGPoint(x: Double(landmark.x), y: Double(landmark.y)))
+    else { throw FaceMeshMapBackError.invalidCrop }
+    let pixelX = Double(mapped.x)
+    let pixelY = Double(mapped.y)
+    let pixelZ = Double(landmark.z) * scale
     normalized.append(CGPoint(x: pixelX / width, y: pixelY / height))
     pixelSpace.append(SIMD3<Double>(pixelX, pixelY, pixelZ))
   }

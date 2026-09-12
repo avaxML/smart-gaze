@@ -90,6 +90,8 @@ struct VideoGazeHarness {
     var ys: [Double] = []
     var times: [Double] = []
     var yaws: [Double] = []
+    var trackedCropFrames = 0
+    var cropRotations: [Double] = []
     var firstErrors: [String] = []
 
     while frames < maxFrames, let sample = output.copyNextSampleBuffer() {
@@ -105,6 +107,8 @@ struct VideoGazeHarness {
         ys.append(estimate.gaze.y)
         yaws.append(abs(estimate.headYawRadians))
         times.append(Double(frames) / 25.0)
+        if estimate.usedTrackedCrop { trackedCropFrames += 1 }
+        cropRotations.append(abs(estimate.cropRotationRadians))
         produced += 1
       } catch let error as GazePipelineError {
         switch error {
@@ -125,6 +129,11 @@ struct VideoGazeHarness {
     print(
       "frames \(frames)  gaze \(produced)  noFace \(noFace)  lowPresence \(lowPresence)  errors \(otherErrors)"
     )
+    print("tracked crop frames \(trackedCropFrames)")
+    let meanRotationDegrees =
+      cropRotations.isEmpty
+      ? 0 : cropRotations.reduce(0, +) / Double(cropRotations.count) * 180 / .pi
+    print("mean |crop rotation| deg \(String(format: "%.4f", meanRotationDegrees))")
     for message in firstErrors { print("  first error: \(message)") }
     if !latencies.isEmpty {
       print(

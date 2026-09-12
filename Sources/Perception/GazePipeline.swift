@@ -21,16 +21,24 @@ public struct GazeEstimate: Equatable, Sendable {
   public let headPitchRadians: Double
   /// Camera frame, centimetres: x image-right, y image-down, z away.
   public let faceOriginCentimeters: SIMD3<Double>
+  /// The crop's rotation about the image normal, radians.
+  public let cropRotationRadians: Double
+  /// Whether the face-mesh input came from the previous frame's landmarks
+  /// rather than a fresh Vision rectangle.
+  public let usedTrackedCrop: Bool
 
   public init(
     gaze: NormalizedGazePoint, faceDistanceCentimeters: Double, headYawRadians: Double = 0,
-    headPitchRadians: Double = 0, faceOriginCentimeters: SIMD3<Double> = .zero
+    headPitchRadians: Double = 0, faceOriginCentimeters: SIMD3<Double> = .zero,
+    cropRotationRadians: Double = 0, usedTrackedCrop: Bool = false
   ) {
     self.gaze = gaze
     self.faceDistanceCentimeters = faceDistanceCentimeters
     self.headYawRadians = headYawRadians
     self.headPitchRadians = headPitchRadians
     self.faceOriginCentimeters = faceOriginCentimeters
+    self.cropRotationRadians = cropRotationRadians
+    self.usedTrackedCrop = usedTrackedCrop
   }
 }
 
@@ -38,10 +46,13 @@ public struct GazeEstimate: Equatable, Sendable {
 ///
 /// Owns both Core ML estimators and does the Core Video, Core ML and Vision
 /// work; every arithmetic step (the crop, the map-back, the eye band) is a
-/// pure `GazeKit` call. A missing face or a face-mesh score below
-/// `facePresenceThreshold` throws rather than returning a fabricated sample,
-/// because a neutral head vector or a Vision-landmark stand-in would look
-/// like a real reading downstream.
+/// pure `GazeKit` call. The first frame's crop is seeded from Vision's face
+/// rectangle; following frames re-crop from the previous frame's mesh
+/// landmarks, so the mesh reads the level, rotated crop it was trained on.
+/// Vision runs again only when the tracked crop's presence drops. A missing
+/// face or a face-mesh score below `facePresenceThreshold` throws rather than
+/// returning a fabricated sample, because a neutral head vector or a
+/// Vision-landmark stand-in would look like a real reading downstream.
 public actor GazePipeline {
   /// The face-mesh model's own presence gate (u08 plan §1.3: `sigmoid`,
   /// gate `>= 0.5`).
@@ -51,6 +62,8 @@ public actor GazePipeline {
   private let blazeGaze: BlazeGazeEstimator
   private var verticalFocalLengthPixels: Double?
   private var verticalFieldOfViewOverrideDegrees: Double?
+  private var trackedLandmarks: [SIMD3<Double>]?
+  private var trackedFrameSize: CGSize?
 
   public init(
     faceMeshModelURL: URL,
@@ -98,30 +111,51 @@ public actor GazePipeline {
 
     let frameSize = CGSize(
       width: CVPixelBufferGetWidth(pixelBuffer), height: CVPixelBufferGetHeight(pixelBuffer))
-    guard let boundingBox = try Self.detectFaceBoundingBox(in: pixelBuffer) else {
-      throw GazePipelineError.noFaceDetected
-    }
-    guard
-      let cropRect = FaceCropGeometry.expandedFaceCrop(
-        visionBoundingBox: boundingBox, frameSize: frameSize)
-    else {
-      throw GazePipelineError.cropUnavailable
-    }
-
     let source = try CVPixelBufferSource(pixelBuffer: pixelBuffer)
-    let cropRGB = try resampledRGB(
-      source, from: cropRect, width: FaceMeshInput.width, height: FaceMeshInput.height)
-    let meshResult = try await faceMesh.landmarks(rgb: cropRGB)
 
-    guard meshResult.facePresence >= Self.facePresenceThreshold else {
-      throw GazePipelineError.facePresenceTooLow(meshResult.facePresence)
+    var trackedResult: (crop: FaceCrop, mesh: FaceMeshResult)?
+    if let landmarks = trackedLandmarks, trackedFrameSize == frameSize,
+      let trackedCrop = FaceCrop.tracking(landmarks: landmarks, frameSize: frameSize)
+    {
+      let cropRGB = try croppedRGB(
+        source, crop: trackedCrop, cropPixelSize: FaceMeshInput.width)
+      let mesh = try await faceMesh.landmarks(rgb: cropRGB)
+      if mesh.facePresence >= Self.facePresenceThreshold {
+        trackedResult = (trackedCrop, mesh)
+      }
     }
+
+    let crop: FaceCrop
+    let meshResult: FaceMeshResult
+    if let trackedResult {
+      crop = trackedResult.crop
+      meshResult = trackedResult.mesh
+    } else {
+      trackedLandmarks = nil
+      guard let boundingBox = try Self.detectFaceBoundingBox(in: pixelBuffer) else {
+        throw GazePipelineError.noFaceDetected
+      }
+      guard let seeded = FaceCrop.seed(visionBoundingBox: boundingBox, frameSize: frameSize) else {
+        throw GazePipelineError.cropUnavailable
+      }
+      let cropRGB = try croppedRGB(source, crop: seeded, cropPixelSize: FaceMeshInput.width)
+      let mesh = try await faceMesh.landmarks(rgb: cropRGB)
+      guard mesh.facePresence >= Self.facePresenceThreshold else {
+        throw GazePipelineError.facePresenceTooLow(mesh.facePresence)
+      }
+      crop = seeded
+      meshResult = mesh
+    }
+    let usedTrackedCrop = trackedResult != nil
 
     let fullFrame = try mapCropLandmarksToFrame(
       cropLandmarks: meshResult.landmarks,
       cropPixelSize: Double(FaceMeshInput.width),
-      cropRect: cropRect,
+      crop: crop,
       frameSize: frameSize)
+
+    trackedLandmarks = fullFrame.pixelSpace
+    trackedFrameSize = frameSize
 
     let eyeBand = try eyeBandRGB(
       from: source, landmarks: fullFrame.normalized, frameSize: frameSize)
@@ -141,7 +175,8 @@ public actor GazePipeline {
       gaze: gaze, faceDistanceCentimeters: headPose.faceOrigin.centimetres.z,
       headYawRadians: headYawRadians(from: headPose.headVector),
       headPitchRadians: headPitchRadians(from: headPose.headVector),
-      faceOriginCentimeters: headPose.faceOrigin.centimetres)
+      faceOriginCentimeters: headPose.faceOrigin.centimetres,
+      cropRotationRadians: crop.rotationRadians, usedTrackedCrop: usedTrackedCrop)
   }
 
   /// The only Vision call in the pipeline: bootstraps the crop from Vision's

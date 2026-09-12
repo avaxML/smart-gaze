@@ -23,6 +23,10 @@ private func makeSource(width: Int, height: Int, rgb: [Float]) throws -> ArrayPi
   try #require(ArrayPixelSource(width: width, height: height, rgb: rgb))
 }
 
+private func pixel(_ output: [Float], _ index: Int) -> SIMD3<Float> {
+  SIMD3(output[index * 3], output[index * 3 + 1], output[index * 3 + 2])
+}
+
 private let distinct2x2: [Float] = [
   1, 0, 0,
   0, 1, 0,
@@ -31,6 +35,10 @@ private let distinct2x2: [Float] = [
 ]
 
 private let graded4x4 = (0..<48).map { Float($0) / 48 }
+
+private let axis4x4: [Float] = (0..<4).flatMap { y in
+  (0..<4).flatMap { x -> [Float] in [Float(x), Float(y), 0] }
+}
 
 @Test func arrayPixelSourceRejectsMismatchedBufferLength() throws {
   #expect(ArrayPixelSource(width: 2, height: 2, rgb: [Float](repeating: 0, count: 11)) == nil)
@@ -180,5 +188,43 @@ private let graded4x4 = (0..<48).map { Float($0) / 48 }
   let singular = try #require(ProjectiveTransform(matrix: [1, 0, 0, 0, 1, 0, 0, 0, 0]))
   #expect(throws: RasterError.nonInvertibleTransform) {
     try warpedRGB(source, transform: singular, width: 2, height: 2)
+  }
+}
+
+@Test func croppedRGBWithZeroRotationMatchesResampledRGBOverTheRect() throws {
+  let source = try makeSource(width: 4, height: 4, rgb: graded4x4)
+  let crop = try #require(FaceCrop(center: CGPoint(x: 1.5, y: 1.5), side: 3, rotationRadians: 0))
+
+  let expected = try resampledRGB(
+    source, from: CGRect(x: 0, y: 0, width: 3, height: 3), width: 6, height: 6)
+  let actual = try croppedRGB(source, crop: crop, cropPixelSize: 6)
+
+  #expect(actual.count == expected.count)
+  for index in 0..<expected.count {
+    #expect(abs(actual[index] - expected[index]) <= 1e-5)
+  }
+}
+
+@Test func croppedRGBWithAQuarterTurnPermutesPixels() throws {
+  let source = try makeSource(width: 4, height: 4, rgb: axis4x4)
+  let crop = try #require(
+    FaceCrop(center: CGPoint(x: 1.5, y: 1.5), side: 3, rotationRadians: .pi / 2))
+
+  let output = try croppedRGB(source, crop: crop, cropPixelSize: 3)
+  #expect(output.count == 27)
+
+  // scale = 1; output pixel (i, j) samples source pixel (3 - j, i), whose
+  // colour is (x, y, 0).
+  #expect(approximatelyEqual(pixel(output, 0), SIMD3(3, 0, 0), tolerance: 1e-6))
+  #expect(approximatelyEqual(pixel(output, 2), SIMD3(3, 2, 0), tolerance: 1e-6))
+  #expect(approximatelyEqual(pixel(output, 6), SIMD3(1, 0, 0), tolerance: 1e-6))
+  #expect(approximatelyEqual(pixel(output, 8), SIMD3(1, 2, 0), tolerance: 1e-6))
+}
+
+@Test func croppedRGBRejectsANonPositiveCropPixelSize() throws {
+  let source = try makeSource(width: 4, height: 4, rgb: graded4x4)
+  let crop = try #require(FaceCrop(center: CGPoint(x: 1.5, y: 1.5), side: 3, rotationRadians: 0))
+  #expect(throws: RasterError.nonInvertibleTransform) {
+    try croppedRGB(source, crop: crop, cropPixelSize: 0)
   }
 }
