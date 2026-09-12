@@ -64,6 +64,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     NSApp.activate(ignoringOtherApps: true)
   }
 
+  var screenshotWindow: NSWindow? { window }
+
   func windowWillClose(_ notification: Notification) {
     preview.stop()
     model.settingsWindowWillClose()
