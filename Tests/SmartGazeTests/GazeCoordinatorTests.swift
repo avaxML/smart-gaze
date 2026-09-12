@@ -481,3 +481,34 @@ private final class Counter: @unchecked Sendable {
   await coordinator.waitUntilCaptureSettled()
   #expect(captureCalls.value == 1)
 }
+
+/// The drop the detector is gated on must come from the pipeline estimate's
+/// own iris contour, averaged over both eyes, and stay nil without iris data.
+@MainActor
+@Test func theCoordinatorFeedsTheEstimatesIrisDropToTheSquintDetector() async {
+  let coordinator = GazeCoordinator(
+    settings: .default,
+    gazePipeline: nil,
+    capturer: FakeCapturer {
+      CapturedRegion(jpeg: oneByOneJPEG(), rect: .zero, displayID: CGMainDisplayID())
+    },
+    bubble: FakeBubble(),
+    makeExplanationStream: { _ in nil })
+
+  let contour = (0..<71).map { index in
+    CGPoint(x: Double(index), y: index < 35 ? 100 : (index == 35 ? 120 : 140))
+  }
+  let eye = EyeIrisEstimate(
+    irisCenter: CGPoint(x: 0, y: 132), irisDiameterPixels: 12, contour: contour, irisPoints: [])
+  let iris = IrisEstimate(imageLeftEye: eye, imageRightEye: eye, depthCentimetres: 60)
+  let estimate = GazeEstimate(
+    gaze: NormalizedGazePoint(x: 0, y: 0), faceDistanceCentimeters: 60, iris: iris)
+
+  await coordinator.updateSquintInputs(from: estimate)
+  #expect(await coordinator.latestIrisDrop == 0.3)
+
+  let withoutIris = GazeEstimate(
+    gaze: NormalizedGazePoint(x: 0, y: 0), faceDistanceCentimeters: 60)
+  await coordinator.updateSquintInputs(from: withoutIris)
+  #expect(await coordinator.latestIrisDrop == nil)
+}

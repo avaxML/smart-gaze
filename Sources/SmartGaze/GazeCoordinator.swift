@@ -45,6 +45,9 @@ actor GazeCoordinator {
   private var faceLoss = FaceLossDebounce()
   private var blinkDetector = BlinkDetector()
   private var squintDetector = SquintDetector()
+  private(set) var latestHeadPitchRadians: Double = 0
+  private(set) var latestIrisDrop: Double?
+  private var lastSquintSuppressionLog: TimeInterval?
   private var observationCount = 0
   private var headPose = HeadPoseGate()
   private let calibration: CalibrationMap?
@@ -132,6 +135,7 @@ actor GazeCoordinator {
     guard let gazePipeline, let calibration else { return }
     do {
       let estimate = try await gazePipeline.gazePoint(from: pixelBuffer)
+      updateSquintInputs(from: estimate)
       faceLoss.recordSuccess()
       handleHeadYaw(estimate.headYawRadians)
       let projected = calibration.project(estimate.gaze)
@@ -171,6 +175,25 @@ actor GazeCoordinator {
         await apply(tracking.handle(.trackingLost(timestamp)))
       }
     }
+  }
+
+  /// Records the head pitch and iris drop a pipeline estimate supplies, so the
+  /// next `handleObservation` can gate a squint on them. Internal so a test can
+  /// drive it with a hand-built estimate, the way `apply` is exposed.
+  func updateSquintInputs(from estimate: GazeEstimate) {
+    latestHeadPitchRadians = estimate.headPitchRadians
+    latestIrisDrop = GazeCoordinator.averageIrisDrop(estimate.iris)
+  }
+
+  /// The mean per-eye iris drop, ignoring an eye whose contour carries no
+  /// measurable height and returning `nil` when no eye had an iris reading.
+  nonisolated static func averageIrisDrop(_ iris: IrisEstimate?) -> Double? {
+    guard let iris else { return nil }
+    let drops = [iris.imageLeftEye, iris.imageRightEye].compactMap {
+      SquintDetector.irisDrop(irisCenter: $0.irisCenter, contour: $0.contour)
+    }
+    guard !drops.isEmpty else { return nil }
+    return drops.reduce(0, +) / Double(drops.count)
   }
 
   /// Head yaw comes from the same landmarks the gaze estimate does, not from
@@ -220,12 +243,17 @@ actor GazeCoordinator {
     if let event = blinkDetector.add(left: left, right: right, at: timestamp) {
       await apply(tracking.handle(.blink(event, timestamp)))
     }
-    if let event = squintDetector.add(left: left, right: right, at: timestamp) {
+    if let event = squintDetector.add(
+      left: left, right: right, pitchRadians: latestHeadPitchRadians,
+      irisDrop: latestIrisDrop, at: timestamp)
+    {
       switch event {
       case .started: LaunchDiagnostics.record(.gaze, "squint started")
       case .ended: LaunchDiagnostics.record(.gaze, "squint ended")
       }
       await apply(tracking.handle(.squint(event, timestamp)))
+    } else if squintDetector.suppressedNarrowedFrame {
+      logSquintSuppression(at: timestamp)
     }
     if observationCount % 30 == 0 {
       let baseline = squintDetector.openBaseline
@@ -236,6 +264,16 @@ actor GazeCoordinator {
           + "baseline=\(String(format: "%.3f", baseline)) "
           + "narrowedBelow=\(String(format: "%.3f", narrowedBelow))")
     }
+  }
+
+  /// Records at most one explanation per second while a narrowed run is being
+  /// ignored, so a live trace can tell a real miss from a gate that fired.
+  private func logSquintSuppression(at timestamp: TimeInterval) {
+    if let last = lastSquintSuppressionLog, timestamp - last < 1.0 { return }
+    lastSquintSuppressionLog = timestamp
+    let pitch = String(format: "%.3f", latestHeadPitchRadians)
+    let drop = latestIrisDrop.map { String(format: "%.3f", $0) } ?? "nil"
+    LaunchDiagnostics.record(.gaze, "squint suppressed pitch=\(pitch) drop=\(drop)")
   }
 
   // MARK: - Global modifier input
