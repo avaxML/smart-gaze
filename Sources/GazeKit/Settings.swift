@@ -110,9 +110,14 @@ public struct Settings: Codable, Equatable, Sendable {
     self.headTranslationCorrection = headTranslationCorrection
   }
 
+  /// `dispersionThreshold` is measured, not inherited: the first calibration
+  /// on the shipped pipeline (MacBook Pro 14 inch, 71 cm) recorded a median
+  /// within-burst spread of 227 pt while the user provably held a target.
+  /// Twice that, clamped to 240, admits reading saccades within a line
+  /// without admitting a glance across the screen. Issue #21 has the trace.
   public static let `default` = Settings(
     dwellSeconds: 1.2,
-    dispersionThreshold: 160,
+    dispersionThreshold: 240,
     activationMode: .modifierHeld,
     modifierKey: .option,
     bubbleWidth: 360,

@@ -41,7 +41,7 @@ private func loadSettings(withStoredCalibration calibration: [String: Any]) thro
   let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
 
   #expect(object["dwellSeconds"] as? Double == 1.2)
-  #expect(object["dispersionThreshold"] as? Double == 160)
+  #expect(object["dispersionThreshold"] as? Double == 240)
   #expect(object["activationMode"] as? String == "modifierHeld")
   #expect(object["modifierKey"] as? String == "option")
   #expect(object["bubbleWidth"] as? Double == 360)
@@ -65,7 +65,7 @@ private func loadSettings(withStoredCalibration calibration: [String: Any]) thro
   #expect(decoded.deniedApps.allowsCapture(frontmostBundleID: "com.1password.1password") == false)
   #expect(decoded.dwellSeconds == 1.2)
   #expect(decoded.activationMode == .modifierHeld)
-  #expect(decoded.dispersionThreshold == 160)
+  #expect(decoded.dispersionThreshold == 240)
 }
 
 @Test func settingsRoundTripACustomDenylist() throws {
@@ -111,8 +111,8 @@ private func loadSettings(withStoredCalibration calibration: [String: Any]) thro
   #expect(settings.modifierKey == .option)
 }
 
-@Test func startupDefaultDispersionIsTheUncalibratedPlaceholder() {
-  #expect(Settings.default.dispersionThreshold == 160)
+@Test func startupDefaultDispersionIsTheMeasuredValue() {
+  #expect(Settings.default.dispersionThreshold == 240)
 }
 
 @Test func defaultProviderConfigurationMatchesTheAgreedSchema() {
