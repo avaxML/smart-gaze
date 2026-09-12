@@ -21,7 +21,11 @@ struct GeneralSettingsView: View {
 
       Section {
         VStack(alignment: .leading, spacing: 4) {
-          Text("Smoothing")
+          valueRow(
+            "Smoothing",
+            value: model.settings.gazeSmoothing.formatted(
+              .percent.precision(.fractionLength(0)))
+          )
           Slider(value: model.gazeSmoothingBinding(), in: GazeSmoothing.range) {
             Text("Smoothing")
           } minimumValueLabel: {
@@ -71,21 +75,39 @@ struct GeneralSettingsView: View {
   }
 
   private func boundedRow(
-    _ title: String, value: Binding<Double>, range: ClosedRange<Double>, step: Double.Stride,
+    _ title: String, value: Binding<Double>, range: ClosedRange<Double>, step: Double,
     unit: String, fractionDigits: Int
   ) -> some View {
     VStack(alignment: .leading, spacing: 4) {
-      HStack {
-        Text(title)
-        Spacer()
-        Text(
+      valueRow(
+        title,
+        value:
           "\(value.wrappedValue.formatted(.number.precision(.fractionLength(fractionDigits)))) \(unit)"
-        )
-        .monospacedDigit()
-        .foregroundStyle(.secondary)
-      }
-      Slider(value: value, in: range, step: step)
+      )
+      Slider(value: stepped(value, step: step, in: range), in: range)
     }
+  }
+
+  private func valueRow(_ title: String, value: String) -> some View {
+    HStack {
+      Text(title)
+      Spacer()
+      Text(value).monospacedDigit().foregroundStyle(.secondary)
+    }
+  }
+
+  /// Snaps the continuous slider to `step` so the track carries no tick marks;
+  /// a stepped `Slider` draws one tick per step, which reads as noise here.
+  private func stepped(
+    _ value: Binding<Double>, step: Double, in range: ClosedRange<Double>
+  ) -> Binding<Double> {
+    Binding(
+      get: { value.wrappedValue },
+      set: { newValue in
+        let snapped = (newValue / step).rounded() * step
+        value.wrappedValue = min(max(snapped, range.lowerBound), range.upperBound)
+      }
+    )
   }
 
   private func activationLabel(_ mode: ActivationMode) -> String {
