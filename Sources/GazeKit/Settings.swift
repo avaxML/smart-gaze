@@ -50,6 +50,8 @@ public struct Settings: Codable, Equatable, Sendable {
   /// The user's fitted interpupillary distance, centimetres; `nil` until a
   /// calibration has measured one.
   public var interpupillaryCentimetres: Double?
+  /// Every camera whose focal length has been measured, one entry per camera.
+  public var cameraFocalLengths: [CameraFocalLength]
 
   private enum CodingKeys: String, CodingKey {
     case dwellSeconds
@@ -68,6 +70,7 @@ public struct Settings: Codable, Equatable, Sendable {
     case headTranslationCorrection
     case headRotationCorrection
     case interpupillaryCentimetres
+    case cameraFocalLengths
   }
 
   public init(from decoder: Decoder) throws {
@@ -101,6 +104,9 @@ public struct Settings: Codable, Equatable, Sendable {
     interpupillaryCentimetres = decodedInterpupillary.flatMap {
       InterpupillaryFit.plausibleRange.contains($0) ? $0 : nil
     }
+    // Settings written before the camera measurement existed keep no entries.
+    cameraFocalLengths =
+      (try? container.decodeIfPresent([CameraFocalLength].self, forKey: .cameraFocalLengths)) ?? []
   }
 
   public init(
@@ -119,7 +125,8 @@ public struct Settings: Codable, Equatable, Sendable {
     calibratedBounds: CGRect? = nil,
     headTranslationCorrection: HeadTranslationCorrection? = nil,
     headRotationCorrection: HeadRotationCorrection? = nil,
-    interpupillaryCentimetres: Double? = nil
+    interpupillaryCentimetres: Double? = nil,
+    cameraFocalLengths: [CameraFocalLength] = []
   ) {
     self.dwellSeconds = dwellSeconds
     self.dispersionThreshold = dispersionThreshold
@@ -137,6 +144,7 @@ public struct Settings: Codable, Equatable, Sendable {
     self.headTranslationCorrection = headTranslationCorrection
     self.headRotationCorrection = headRotationCorrection
     self.interpupillaryCentimetres = interpupillaryCentimetres
+    self.cameraFocalLengths = cameraFocalLengths
   }
 
   /// Calm end of the range by default: the user asked for smooth motion and
@@ -201,6 +209,11 @@ public struct Settings: Codable, Equatable, Sendable {
       fallback: Settings.default.bubbleMaxHeight)
     return copy
   }
+
+  /// The measured focal length for `cameraID`, or `nil` until one is stored.
+  public func focalLength(forCameraID cameraID: String) -> CameraFocalLength? {
+    cameraFocalLengths.first { $0.cameraID == cameraID }
+  }
 }
 
 public enum SettingsRange {
@@ -208,6 +221,9 @@ public enum SettingsRange {
   public static let dispersionThreshold: ClosedRange<Double> = 10...600
   public static let bubbleWidth: ClosedRange<Double> = 220...900
   public static let bubbleMaxHeight: ClosedRange<Double> = 160...1200
+  /// The sitting distances a one-time focal-length measurement accepts,
+  /// centimetres.
+  public static let measurementDistanceCentimetres: ClosedRange<Double> = 30...120
 
   public static func clamp<T: Comparable>(_ value: T, to range: ClosedRange<T>) -> T {
     min(max(value, range.lowerBound), range.upperBound)

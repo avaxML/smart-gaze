@@ -83,7 +83,7 @@ struct SettingsView: View {
     case .general:
       GeneralSettingsView(model: model)
     case .preview:
-      CalibrationPreviewView(model: preview)
+      CalibrationPreviewView(model: preview, settings: model)
     case .provider:
       ProviderSettingsView(model: model)
     case .privacy:

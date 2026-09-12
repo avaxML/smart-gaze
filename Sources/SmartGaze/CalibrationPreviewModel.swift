@@ -111,6 +111,31 @@ final class CalibrationPreviewModel {
 
   func startCalibration() { onStartCalibration?() }
 
+  /// The one-time focal measurement for this camera, kept after it finishes so
+  /// its result stays visible. Replaced when Measure runs again.
+  private(set) var focalMeasurement: FocalMeasurementCoordinator?
+
+  var isFocalMeasurementRunning: Bool {
+    guard case .measuring = focalMeasurement?.phase else { return false }
+    return true
+  }
+
+  var measurementDistanceCentimetres: Double {
+    settings?.measurementDistanceCentimetres ?? 60
+  }
+
+  func startFocalMeasurement() {
+    focalMeasurement?.cancel()
+    let coordinator = FocalMeasurementCoordinator(
+      distanceCentimetres: measurementDistanceCentimetres)
+    coordinator.onFinished = { [weak self] measurement in
+      guard let measurement else { return }
+      self?.settings?.applyCameraFocalLength(measurement)
+    }
+    focalMeasurement = coordinator
+    Task { await coordinator.start() }
+  }
+
   let sampleTitle: String
   let sampleCode: String
 
@@ -185,6 +210,8 @@ final class CalibrationPreviewModel {
   /// Tab exit / window close: stop all work and drop stale state.
   func stop() {
     isPreviewPresented = false
+    focalMeasurement?.cancel()
+    focalMeasurement = nil
     stopPointerSampling()
     cancelExplanation()
     simulatedModifierHeld = false

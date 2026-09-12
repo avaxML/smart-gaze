@@ -254,3 +254,23 @@ private func makeModel(
 
   #expect(model.persistenceError != nil)
 }
+
+@MainActor
+@Test func storingAFocalLengthReplacesTheEntryForTheSameCameraAndPersists() {
+  let store = FakeSettingsStore()
+  let model = makeModel(store: store)
+  let first = CameraFocalLength(
+    cameraID: "camera-one", cameraName: "Camera One", focalLengthPerFrameHeight: 1.4)
+  let other = CameraFocalLength(
+    cameraID: "camera-two", cameraName: "Camera Two", focalLengthPerFrameHeight: 1.2)
+  let replacement = CameraFocalLength(
+    cameraID: "camera-one", cameraName: "Camera One", focalLengthPerFrameHeight: 1.5)
+
+  model.applyCameraFocalLength(first)
+  model.applyCameraFocalLength(other)
+  model.applyCameraFocalLength(replacement)
+
+  #expect(model.settings.cameraFocalLengths == [other, replacement])
+  #expect(model.settings.focalLength(forCameraID: "camera-one") == replacement)
+  #expect(store.savedCount == 3)
+}

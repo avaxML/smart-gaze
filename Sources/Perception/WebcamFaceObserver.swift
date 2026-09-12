@@ -192,3 +192,8 @@ extension WebcamFaceObserver: AVCaptureVideoDataOutputSampleBufferDelegate {
     continuation.yield(observation)
   }
 }
+
+extension WebcamFaceObserver: CameraIdentityProviding {
+  public var cameraID: String? { AVCaptureDevice.default(for: .video)?.uniqueID }
+  public var cameraName: String? { AVCaptureDevice.default(for: .video)?.localizedName }
+}

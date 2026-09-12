@@ -46,6 +46,7 @@ final class CalibrationCoordinator {
   private let bounds: CGRect
   private let makePipeline: () throws -> GazePipeline
   private let camera: CameraController
+  private let cameraFocalLengths: [CameraFocalLength]
   let settleDuration: Duration
   let burstDuration: Duration
   private let dispersionThreshold: Double
@@ -54,6 +55,8 @@ final class CalibrationCoordinator {
   private var pipeline: GazePipeline?
   private var run: CalibrationRun?
   private var runTask: Task<Void, Never>?
+  private var intrinsicFocalLengthPixels: Double?
+  private var focalLengthApplied = false
   private var bufferedGaze: [NormalizedGazePoint] = []
   private var bufferedSweepSamples: [HeadRotationFit.Sample] = []
   private var bufferedHeadPoses: [(yaw: Double, pitch: Double)] = []
@@ -70,6 +73,7 @@ final class CalibrationCoordinator {
   init(
     bounds: CGRect,
     interpupillaryCentimetres: Double? = nil,
+    cameraFocalLengths: [CameraFocalLength] = [],
     makePipeline: (() throws -> GazePipeline)? = nil,
     camera: CameraController = CameraController(),
     settleDuration: Duration = .milliseconds(700),
@@ -81,6 +85,7 @@ final class CalibrationCoordinator {
     maxErrorPoints: Double = 120
   ) {
     self.bounds = bounds
+    self.cameraFocalLengths = cameraFocalLengths
     self.makePipeline =
       makePipeline ?? {
         try GazePipeline(
@@ -165,6 +170,8 @@ final class CalibrationCoordinator {
   func start() {
     guard runTask == nil else { return }
     phase = .preparing
+    focalLengthApplied = false
+    intrinsicFocalLengthPixels = nil
     do {
       pipeline = try makePipeline()
     } catch {
@@ -172,6 +179,7 @@ final class CalibrationCoordinator {
       return
     }
 
+    camera.onFocalLength = { [weak self] pixels in self?.intrinsicFocalLengthPixels = pixels }
     camera.onFrame = { [weak self] frame in self?.handleFrame(frame) }
     camera.onError = { [weak self] _ in
       self?.phase = .unavailable("The camera could not be started.")
@@ -355,8 +363,30 @@ final class CalibrationCoordinator {
   private func stopCamera() {
     camera.onFrame = nil
     camera.onError = nil
+    camera.onFocalLength = nil
     camera.pause()
     runTask = nil
+  }
+
+  /// Applies the best focal length the first frame allows: the camera's own
+  /// intrinsics, a measurement stored for this camera, the per-model table, or
+  /// the hand-fitted fallback.
+  private func applyStoredFocalLength(frameHeight: Double) {
+    let measured = camera.cameraID.flatMap { cameraID in
+      cameraFocalLengths.first { $0.cameraID == cameraID }
+    }
+    guard
+      let resolved = CameraFocalLengthResolution.resolve(
+        measured: measured, intrinsicFocalLengthPixels: intrinsicFocalLengthPixels,
+        cameraName: camera.cameraName, frameHeight: frameHeight)
+    else { return }
+    LaunchDiagnostics.record(
+      .intrinsicMatrix,
+      "focal source=\(resolved.source.rawValue) "
+        + "fov=\(String(format: "%.1f", resolved.verticalFieldOfViewDegrees))")
+    Task { [weak self] in
+      await self?.pipeline?.updateVerticalFocalLength(pixels: resolved.verticalFocalLengthPixels)
+    }
   }
 
   private func handleFrame(_ frame: CameraFrame) {
@@ -366,6 +396,10 @@ final class CalibrationCoordinator {
       frameSize = CGSize(
         width: CVPixelBufferGetWidth(frame.pixelBuffer),
         height: CVPixelBufferGetHeight(frame.pixelBuffer))
+      if !focalLengthApplied {
+        focalLengthApplied = true
+        applyStoredFocalLength(frameHeight: Double(CVPixelBufferGetHeight(frame.pixelBuffer)))
+      }
     }
     var captureSetupImage = false
     if case .setup = phase, frameCount % 3 == 0 {

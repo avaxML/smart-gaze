@@ -128,6 +128,11 @@ final class FakeFaceObserver: FaceObserving, @unchecked Sendable {
   }
 }
 
+extension FakeFaceObserver: CameraIdentityProviding {
+  var cameraID: String? { "fake-camera" }
+  var cameraName: String? { "Fake Camera" }
+}
+
 final class FakeSettingsStore: SettingsStore, @unchecked Sendable {
   private let lock = NSLock()
   private var currentStorage: Settings

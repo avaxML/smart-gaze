@@ -7,9 +7,11 @@ import SwiftUI
 /// It is never presented as camera tracking.
 struct CalibrationPreviewView: View {
   var model: CalibrationPreviewModel
+  @ObservedObject var settings: SettingsModel
 
   var body: some View {
     Form {
+      cameraDistanceSection
       calibrationSection
       targetTelemetrySection
       explanationSection
@@ -35,6 +37,82 @@ struct CalibrationPreviewView: View {
     Binding(
       get: { model.isPointerSimulationEnabled },
       set: { model.setPointerSimulationEnabled($0) })
+  }
+
+  /// One measurement per camera. It turns the camera's pixels into metric
+  /// centimetres, replacing the hand-fitted lens angle the depth relies on
+  /// until then.
+  private var cameraDistanceSection: some View {
+    Section {
+      LabeledContent("Distance") {
+        HStack(spacing: 8) {
+          TextField(
+            "Distance", value: settings.measurementDistanceBinding(), format: .number
+          )
+          .labelsHidden()
+          .multilineTextAlignment(.trailing)
+          .frame(width: 56)
+          Stepper(
+            "Distance", value: settings.measurementDistanceBinding(),
+            in: SettingsRange.measurementDistanceCentimetres, step: 1
+          )
+          .labelsHidden()
+          Text("cm")
+            .foregroundStyle(.secondary)
+        }
+      }
+
+      Text(
+        "Sit so your eyes are this far from the screen, then measure. A tape measure or the length of your forearm to the screen edge is fine."
+      )
+      .font(.callout)
+      .foregroundStyle(.secondary)
+      .fixedSize(horizontal: false, vertical: true)
+
+      focalMeasurementRow
+    } header: {
+      Text("Camera distance")
+    } footer: {
+      Text(
+        "Measures this camera's lens once, from the known size of your iris, so face distance is metric instead of assumed."
+      )
+    }
+  }
+
+  @ViewBuilder
+  private var focalMeasurementRow: some View {
+    switch model.focalMeasurement?.phase {
+    case nil, .some(.idle):
+      Button("Measure") { model.startFocalMeasurement() }
+        .help("Hold still and look at the screen for about four seconds.")
+    case .some(.measuring(let progress)):
+      HStack(spacing: 12) {
+        ProgressView(value: progress)
+          .progressViewStyle(.linear)
+          .frame(maxWidth: 220)
+        Text("Measuring…")
+          .foregroundStyle(.secondary)
+      }
+    case .some(.done(_, let fieldOfViewDegrees)):
+      HStack(spacing: 12) {
+        Label(
+          String(
+            format: "Measured: %.1f degrees vertical field of view", fieldOfViewDegrees),
+          systemImage: "checkmark.circle"
+        )
+        .foregroundStyle(.secondary)
+        Spacer(minLength: 12)
+        Button("Measure Again") { model.startFocalMeasurement() }
+      }
+    case .some(.failed(let message)):
+      HStack(spacing: 12) {
+        Label(message, systemImage: "exclamationmark.triangle")
+          .foregroundStyle(.red)
+          .fixedSize(horizontal: false, vertical: true)
+        Spacer(minLength: 12)
+        Button("Try Again") { model.startFocalMeasurement() }
+      }
+    }
   }
 
   /// One card holds the primary action, the source picker and every source
@@ -331,5 +409,10 @@ struct CalibrationPreviewView: View {
 }
 
 #Preview {
-  CalibrationPreviewView(model: CalibrationPreviewModel())
+  CalibrationPreviewView(
+    model: CalibrationPreviewModel(),
+    settings: SettingsModel(
+      store: SettingsScreenshotHarness.makeSettingsStore(),
+      secrets: SettingsScreenshotHarness.makeSecrets(),
+      settings: SettingsScreenshotHarness.previewSettings))
 }

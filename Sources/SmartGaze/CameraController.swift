@@ -36,6 +36,12 @@ final class CameraController {
   private var generation = 0
   private var focalLengthReported = false
 
+  /// The active camera's stable identifier and name, once an observer has been
+  /// created. `nil` before the first `start()`, or when the observer cannot
+  /// identify its device.
+  var cameraID: String? { (observer as? any CameraIdentityProviding)?.cameraID }
+  var cameraName: String? { (observer as? any CameraIdentityProviding)?.cameraName }
+
   init(
     makeObserver: @escaping () -> any FaceObserving = { WebcamFaceObserver() },
     sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }

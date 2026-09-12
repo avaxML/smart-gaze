@@ -364,3 +364,31 @@ private func settingsObjectWithEveryKey() throws -> [String: Any] {
   #expect(loaded.dwellSeconds == SettingsRange.dwellSeconds.upperBound)
   #expect(loaded.dispersionThreshold == SettingsRange.dispersionThreshold.lowerBound)
 }
+
+@Test func cameraFocalLengthsRoundTripAndLookUpByID() throws {
+  var settings = Settings.default
+  let first = CameraFocalLength(
+    cameraID: "camera-one", cameraName: "Camera One", focalLengthPerFrameHeight: 1.4)
+  let second = CameraFocalLength(
+    cameraID: "camera-two", cameraName: "Camera Two", focalLengthPerFrameHeight: 1.2)
+  settings.cameraFocalLengths = [first, second]
+
+  let data = try JSONEncoder().encode(settings)
+  let decoded = try JSONDecoder().decode(Settings.self, from: data)
+
+  #expect(decoded.cameraFocalLengths == [first, second])
+  #expect(decoded.focalLength(forCameraID: "camera-two") == second)
+  #expect(decoded.focalLength(forCameraID: "missing") == nil)
+}
+
+@Test func settingsBlobWithoutCameraFocalLengthsDecodesToEmpty() throws {
+  let data = try JSONEncoder().encode(Settings.default)
+  var object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+  object.removeValue(forKey: "cameraFocalLengths")
+  let stripped = try JSONSerialization.data(withJSONObject: object)
+
+  let decoded = try JSONDecoder().decode(Settings.self, from: stripped)
+
+  #expect(decoded.cameraFocalLengths.isEmpty)
+  #expect(decoded.focalLength(forCameraID: "anything") == nil)
+}

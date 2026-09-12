@@ -336,7 +336,29 @@ final class SettingsModel: ObservableObject {
 
   var hasCalibration: Bool { settings.calibrationMap != nil }
 
+  /// Session-only measurement distance, centimetres. Never persisted: it is
+  /// the distance the user is sitting at today, not a saved preference.
+  @Published var measurementDistanceCentimetres: Double = 60
+
   var onCalibrationChanged: (() -> Void)?
+
+  func measurementDistanceBinding() -> Binding<Double> {
+    Binding(
+      get: { self.measurementDistanceCentimetres },
+      set: {
+        let safe = $0.isFinite ? $0 : self.measurementDistanceCentimetres
+        self.measurementDistanceCentimetres = SettingsRange.clampFinite(
+          safe, to: SettingsRange.measurementDistanceCentimetres, fallback: 60)
+      })
+  }
+
+  /// Stores a measured camera focal length, replacing any earlier entry for
+  /// the same camera, and persists.
+  func applyCameraFocalLength(_ measurement: CameraFocalLength) {
+    settings.cameraFocalLengths.removeAll { $0.cameraID == measurement.cameraID }
+    settings.cameraFocalLengths.append(measurement)
+    persist()
+  }
 
   /// `pointsPerCentimeter` is the calibrated display's density, from its
   /// physical size; nil (an unknown display, or a test) disables the head

@@ -37,6 +37,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var faceTurned = false
   private var accessibilityWatch: Timer?
   private var modelsMissing = false
+  /// The camera's own intrinsic focal length for the current session, or `nil`
+  /// when macOS reported none. Stored so the first frame can decide whether a
+  /// stored measurement may override it.
+  private var intrinsicFocalLengthPixels: Double?
+  private var focalLengthApplied = false
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     NSApp.setActivationPolicy(.accessory)
@@ -68,6 +73,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     camera.onFocalLength = { [weak self] pixels in
       let detail = pixels.map { "present \($0)" } ?? "absent"
       LaunchDiagnostics.record(.intrinsicMatrix, detail)
+      self?.intrinsicFocalLengthPixels = pixels
       guard let pixels else { return }
       Task { await self?.coordinator?.updateVerticalFocalLength(pixels: pixels) }
     }
@@ -87,8 +93,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   private func handleFrame(_ frame: CameraFrame) {
     guard let coordinator else { return }
+    applyFocalLengthIfNeeded(frame: frame, coordinator: coordinator)
     let timestamp = ProcessInfo.processInfo.systemUptime
     Task { await coordinator.handleFrame(frame.pixelBuffer, at: timestamp) }
+  }
+
+  /// On the first frame, pins the pipeline to the best focal source available:
+  /// the camera's intrinsics, a stored measurement for this camera, the
+  /// per-model table, or the hand-fitted fallback. Runs once per start.
+  private func applyFocalLengthIfNeeded(frame: CameraFrame, coordinator: GazeCoordinator) {
+    guard !focalLengthApplied else { return }
+    focalLengthApplied = true
+    let measured = camera.cameraID.flatMap { cameraID in
+      settingsModel.settings.focalLength(forCameraID: cameraID)
+    }
+    guard
+      let resolved = CameraFocalLengthResolution.resolve(
+        measured: measured,
+        intrinsicFocalLengthPixels: intrinsicFocalLengthPixels,
+        cameraName: camera.cameraName,
+        frameHeight: Double(CVPixelBufferGetHeight(frame.pixelBuffer)))
+    else { return }
+    LaunchDiagnostics.record(
+      .intrinsicMatrix,
+      "focal source=\(resolved.source.rawValue) "
+        + "fov=\(String(format: "%.1f", resolved.verticalFieldOfViewDegrees))")
+    Task { await coordinator.updateVerticalFocalLength(pixels: resolved.verticalFocalLengthPixels) }
   }
 
   /// `camera.onFrame` and `camera.onObservation` both fire once per delivered
@@ -112,6 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // switches it off, so they run detached and the wiring resumes here.
     pipelineGeneration += 1
     let generation = pipelineGeneration
+    focalLengthApplied = false
     let interpupillaryCentimetres =
       settingsModel.settings.interpupillaryCentimetres ?? defaultInterpupillaryCentimetres
     Task { [weak self] in

@@ -30,7 +30,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate, NSToolbarDeleg
       bounds: bounds, physicalMillimetres: CGDisplayScreenSize(displayID))
     let coordinator = CalibrationCoordinator(
       bounds: bounds,
-      interpupillaryCentimetres: model.settings.interpupillaryCentimetres)
+      interpupillaryCentimetres: model.settings.interpupillaryCentimetres,
+      cameraFocalLengths: model.settings.cameraFocalLengths)
     let controller = CalibrationWindowController(coordinator: coordinator)
     calibrationWindowController = controller
     controller.present { [weak self] result in
