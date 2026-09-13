@@ -269,10 +269,86 @@ private func cluster(
   var preview = TrackingPreview(
     mode: .modifierHeld, bounds: CGRect(x: 0, y: 0, width: 100, height: 100))
   _ = preview.handle(.modifierDown(0))
-  _ = preview.handle(.sample(CGPoint(x: 5, y: 5), 0.1))
+  _ = preview.handle(.sample(CGPoint(x: 5, y: 5), 0.4))
   #expect(preview.state == .armed(region: CGPoint(x: 5, y: 5), since: 0))
 
-  #expect(preview.handle(.sample(CGPoint(x: 5, y: 5), 0.05)) == [.hideReticle])
+  #expect(preview.handle(.sample(CGPoint(x: 5, y: 5), 0.1)) == [.hideReticle])
   #expect(preview.state == .idle)
-  #expect(preview.lastIssue == .nonMonotonicTimestamp(previous: 0.1, received: 0.05))
+  #expect(preview.lastIssue == .nonMonotonicTimestamp(previous: 0.4, received: 0.1))
+}
+
+@Test func aFrameLevelReorderedSampleKeepsTheModifierArmed() {
+  var preview = TrackingPreview(mode: .modifierHeld)
+  let point = CGPoint(x: 5, y: 5)
+
+  #expect(preview.handle(.modifierDown(1.00)) == [])
+  #expect(preview.handle(.sample(point, 1.03)) == [.showReticle(at: point)])
+  #expect(preview.state == .armed(region: point, since: 1.00))
+
+  let reordered = preview.handle(.sample(point, 1.01))
+  #expect(!reordered.contains(.hideReticle))
+  #expect(preview.state == .armed(region: point, since: 1.00))
+  #expect(preview.lastIssue == nil)
+  #expect(preview.lastTimestamp == 1.03)
+
+  #expect(preview.handle(.modifierUp(1.05)) == [.capture(at: point), .hideReticle])
+  #expect(preview.localTriggerCount == 1)
+}
+
+@Test func aSampleBeyondTheReorderToleranceClearsTracking() {
+  var preview = TrackingPreview(mode: .modifierHeld)
+  let point = CGPoint(x: 5, y: 5)
+
+  _ = preview.handle(.modifierDown(1.00))
+  _ = preview.handle(.sample(point, 1.03))
+
+  #expect(preview.handle(.sample(point, 0.73)) == [.hideReticle])
+  #expect(preview.isTracking == false)
+  #expect(preview.state == .idle)
+  #expect(
+    preview.lastIssue == .nonMonotonicTimestamp(previous: 1.03, received: 0.73))
+}
+
+@Test func aReorderedSquintReleaseStillCaptures() {
+  var preview = TrackingPreview(mode: .squint)
+  let point = CGPoint(x: 6, y: 8)
+
+  #expect(preview.handle(.sample(point, 1.9)) == [])
+  #expect(preview.handle(.squint(.started, 2.00)) == [])
+  #expect(preview.handle(.sample(point, 2.03)) == [.showReticle(at: point)])
+  #expect(preview.handle(.squint(.ended, 2.02)) == [.capture(at: point), .hideReticle])
+  #expect(preview.localTriggerCount == 1)
+}
+
+@Test func aFixationStillCompletesWhenEveryThirdSampleArrivesOutOfOrder() {
+  var preview = TrackingPreview(
+    mode: .passiveDwell, dwellWindow: 1.2, dispersionThreshold: 100)
+  let point = CGPoint(x: 10, y: 10)
+
+  var nominal: [TimeInterval] = []
+  var time = 0.0
+  while time <= 1.3 {
+    nominal.append(time)
+    time += 0.02
+  }
+
+  var delivery: [TimeInterval] = []
+  var index = 0
+  while index < nominal.count {
+    if index % 3 == 2, index + 1 < nominal.count {
+      delivery.append(nominal[index + 1])
+      delivery.append(nominal[index])
+      index += 2
+    } else {
+      delivery.append(nominal[index])
+      index += 1
+    }
+  }
+
+  for timestamp in delivery {
+    _ = preview.handle(.sample(point, timestamp))
+  }
+
+  #expect(preview.localTriggerCount == 1)
+  #expect(preview.lastLocalCapturePoint == point)
 }

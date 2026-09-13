@@ -30,6 +30,12 @@ public enum TrackingPreviewIssue: Equatable, Sendable {
 /// clears the detector and the machine's arming so no stale gaze can fire;
 /// an out-of-bounds sample clears only the detector and clamps to the edge.
 public struct TrackingPreview: Sendable {
+  /// How far behind `lastTimestamp` an input may arrive and still be treated
+  /// as frame-level reordering rather than corruption. The gaze sample for a
+  /// frame is applied after the observation for the next frame, so its
+  /// delivery timestamp is a few milliseconds older than the last input.
+  public static let reorderTolerance: TimeInterval = 0.25
+
   public let mode: ActivationMode
   public let bounds: CGRect
   public let cooldown: TimeInterval
@@ -82,18 +88,24 @@ public struct TrackingPreview: Sendable {
     case .trackingLost(let time):
       return clearTracking(at: time)
     case .modifierDown(let time):
-      if let rejected = advance(to: time) { return rejected }
-      return apply(machine.handle(.modifierDown(time)))
+      switch advance(to: time) {
+      case .rejected(let effects): return effects
+      case .proceed(let effective): return apply(machine.handle(.modifierDown(effective)))
+      }
     case .modifierUp(let time):
-      if let rejected = advance(to: time) { return rejected }
-      return apply(machine.handle(.modifierUp(time)))
+      switch advance(to: time) {
+      case .rejected(let effects): return effects
+      case .proceed(let effective): return apply(machine.handle(.modifierUp(effective)))
+      }
     case .blink(let event, let time):
       return handleBlink(event, at: time)
     case .squint(let event, let time):
       return handleSquint(event, at: time)
     case .presentationEnded(let time):
-      if let rejected = advance(to: time) { return rejected }
-      return apply(machine.handle(.presentationEnded(time)))
+      switch advance(to: time) {
+      case .rejected(let effects): return effects
+      case .proceed(let effective): return apply(machine.handle(.presentationEnded(effective)))
+      }
     case .reset:
       reset()
       return []
@@ -118,11 +130,15 @@ public struct TrackingPreview: Sendable {
   }
 
   private mutating func handleSample(_ point: CGPoint, at time: TimeInterval) -> [TriggerEffect] {
-    if let rejected = advance(to: time) { return rejected }
+    let effective: TimeInterval
+    switch advance(to: time) {
+    case .rejected(let effects): return effects
+    case .proceed(let at): effective = at
+    }
     guard point.x.isFinite, point.y.isFinite else {
-      lastIssue = .nonFiniteSample(timestamp: time)
+      lastIssue = .nonFiniteSample(timestamp: effective)
       rejectedSampleCount += 1
-      return clearTracking(at: time)
+      return clearTracking(at: effective)
     }
     guard bounds.contains(point) else {
       // The map extrapolates past the display edges, and live traces put one
@@ -131,7 +147,7 @@ public struct TrackingPreview: Sendable {
       // mid-hold, so releases fired almost never. The gaze is real and near
       // an edge: keep the arming alive on the clamped point, and only drop
       // the fixation cluster so nothing dwells off screen.
-      lastIssue = .outOfBoundsSample(point, timestamp: time)
+      lastIssue = .outOfBoundsSample(point, timestamp: effective)
       rejectedSampleCount += 1
       detector.reset()
       currentFixation = nil
@@ -141,7 +157,7 @@ public struct TrackingPreview: Sendable {
         y: min(max(point.y, bounds.minY), bounds.maxY))
       isTracking = true
       lastGazePoint = clamped
-      return apply(machine.handle(.gaze(clamped, time)))
+      return apply(machine.handle(.gaze(clamped, effective)))
     }
 
     lastIssue = nil
@@ -149,8 +165,8 @@ public struct TrackingPreview: Sendable {
     sampleCount += 1
     lastGazePoint = point
 
-    var effects = machine.handle(.gaze(point, time))
-    if let fixation = detector.add(point, at: time) {
+    var effects = machine.handle(.gaze(point, effective))
+    if let fixation = detector.add(point, at: effective) {
       currentFixation = fixation
       effects += machine.handle(.fixation(fixation))
     }
@@ -164,26 +180,34 @@ public struct TrackingPreview: Sendable {
   }
 
   private mutating func handleBlink(_ event: BlinkEvent, at time: TimeInterval) -> [TriggerEffect] {
-    if let rejected = advance(to: time) { return rejected }
+    let effective: TimeInterval
+    switch advance(to: time) {
+    case .rejected(let effects): return effects
+    case .proceed(let at): effective = at
+    }
     // The production `TriggerMachine` keeps the last gaze point across
     // `faceLost`, so a blink after loss would otherwise capture a stale point.
     guard isTracking, lastGazePoint != nil else {
-      lastIssue = .blinkWhileUntracked(timestamp: time)
+      lastIssue = .blinkWhileUntracked(timestamp: effective)
       return []
     }
-    return apply(machine.handle(.blink(event, time)))
+    return apply(machine.handle(.blink(event, effective)))
   }
 
   private mutating func handleSquint(_ event: SquintEvent, at time: TimeInterval) -> [TriggerEffect]
   {
-    if let rejected = advance(to: time) { return rejected }
+    let effective: TimeInterval
+    switch advance(to: time) {
+    case .rejected(let effects): return effects
+    case .proceed(let at): effective = at
+    }
     // As with a blink, the machine keeps the last gaze point across
     // `faceLost`, so a squint after a loss would capture a stale point.
     guard isTracking, lastGazePoint != nil else {
-      lastIssue = .squintWhileUntracked(timestamp: time)
+      lastIssue = .squintWhileUntracked(timestamp: effective)
       return []
     }
-    return apply(machine.handle(.squint(event, time)))
+    return apply(machine.handle(.squint(event, effective)))
   }
 
   /// Drops the live gaze, the fixation buffer and any arming. Used for tracking
@@ -198,17 +222,28 @@ public struct TrackingPreview: Sendable {
     return apply(machine.handle(.faceLost(time)))
   }
 
-  private mutating func advance(to time: TimeInterval) -> [TriggerEffect]? {
+  /// When an input belongs on the reducer's timeline, or the effects of
+  /// rejecting it. A reordered input proceeds at the last timestamp so the
+  /// machine and the detector never observe time moving backwards.
+  private enum Advance {
+    case proceed(TimeInterval)
+    case rejected([TriggerEffect])
+  }
+
+  private mutating func advance(to time: TimeInterval) -> Advance {
     guard time.isFinite else {
       lastIssue = .nonFiniteSample(timestamp: time)
-      return clearTracking(at: time)
+      return .rejected(clearTracking(at: time))
     }
     if let last = lastTimestamp, time < last {
-      lastIssue = .nonMonotonicTimestamp(previous: last, received: time)
-      return clearTracking(at: time)
+      guard last - time <= TrackingPreview.reorderTolerance else {
+        lastIssue = .nonMonotonicTimestamp(previous: last, received: time)
+        return .rejected(clearTracking(at: time))
+      }
+      return .proceed(last)
     }
     lastTimestamp = time
-    return nil
+    return .proceed(time)
   }
 
   private mutating func apply(_ effects: [TriggerEffect]) -> [TriggerEffect] {

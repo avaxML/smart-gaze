@@ -294,6 +294,7 @@ actor GazeCoordinator {
   /// already up, the machine's blink rate and the effects the release produced.
   private func logSquintRelease(from state: TriggerState, effects: [TriggerEffect]) {
     let gaze = tracking.lastGazePoint.map { "(\($0.x),\($0.y))" } ?? "nil"
+    let issue = tracking.lastIssue.map { GazeCoordinator.name(of: $0) } ?? "none"
     let names = effects.map { effect -> String in
       switch effect {
       case .capture: "capture"
@@ -306,7 +307,7 @@ actor GazeCoordinator {
       .gaze,
       "squint release state=\(GazeCoordinator.name(of: state)) tracking=\(tracking.isTracking) "
         + "lastGaze=\(gaze) presenting=\(tracking.isPresenting) blinkRate=\(tracking.blinkRate) "
-        + "effects=\(names.joined(separator: ","))")
+        + "effects=\(names.joined(separator: ",")) issue=\(issue)")
   }
 
   nonisolated private static func name(of state: TriggerState) -> String {
@@ -316,6 +317,16 @@ actor GazeCoordinator {
     case .armed: "armed"
     case .firing: "firing"
     case .cooldown: "cooldown"
+    }
+  }
+
+  nonisolated private static func name(of issue: TrackingPreviewIssue) -> String {
+    switch issue {
+    case .nonFiniteSample: "nonFiniteSample"
+    case .outOfBoundsSample: "outOfBoundsSample"
+    case .nonMonotonicTimestamp: "nonMonotonicTimestamp"
+    case .blinkWhileUntracked: "blinkWhileUntracked"
+    case .squintWhileUntracked: "squintWhileUntracked"
     }
   }
 

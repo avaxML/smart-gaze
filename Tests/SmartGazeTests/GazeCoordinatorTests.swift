@@ -547,3 +547,53 @@ private final class Counter: @unchecked Sendable {
 
   #expect(await coordinator.blinkRate == 0)
 }
+
+/// The camera queue timestamps an observation and a gaze sample off one clock,
+/// but the observation is applied as soon as it arrives while the sample waits
+/// on the async pipeline. The sample for frame N therefore lands after the
+/// observation for frame N+1, a few milliseconds behind. That backward step
+/// must not clear the hold the squint opened, so the release still captures.
+@MainActor
+@Test func aSquintHeldAcrossReorderedFramesStillCaptures() async {
+  let captureCalls = Counter()
+  let capturer = FakeCapturer {
+    captureCalls.increment()
+    return CapturedRegion(jpeg: oneByOneJPEG(), rect: .zero, displayID: CGMainDisplayID())
+  }
+
+  var settings = Settings.default
+  settings.activationMode = .squint
+  settings.calibratedBounds = CGRect(x: 0, y: 0, width: 2000, height: 1200)
+  let coordinator = GazeCoordinator(
+    settings: settings,
+    gazePipeline: nil,
+    capturer: capturer,
+    bubble: FakeBubble(),
+    makeExplanationStream: { _ in nil })
+  await coordinator.start()
+
+  let point = CGPoint(x: 700, y: 400)
+  let step = 1.0 / 30.0
+  await coordinator.handleGazeSample(point, at: 0.0)
+
+  // Closed long enough to start the squint. Each observation is applied one
+  // frame ahead of the sample for the current frame.
+  for index in 1...40 {
+    let sampleTime = Double(index) * step
+    let observationTime = sampleTime + step
+    await coordinator.handleObservation(
+      faceObservation(eyesClosed: true, at: observationTime), at: observationTime)
+    await coordinator.handleGazeSample(point, at: sampleTime)
+  }
+  // Reopen long enough to release the squint.
+  for index in 41...60 {
+    let sampleTime = Double(index) * step
+    let observationTime = sampleTime + step
+    await coordinator.handleObservation(
+      faceObservation(eyesClosed: false, at: observationTime), at: observationTime)
+    await coordinator.handleGazeSample(point, at: sampleTime)
+  }
+
+  await coordinator.waitUntilCaptureSettled()
+  #expect(captureCalls.value == 1)
+}

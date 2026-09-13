@@ -124,8 +124,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   /// `camera.onFrame` and `camera.onObservation` both fire once per delivered
   /// video frame, from the same `AVCaptureVideoDataOutput` callback, so both
   /// are timestamped off the same clock the gaze samples already use rather
-  /// than the sample buffer's own presentation time, keeping every input
-  /// `TrackingPreview` sees on one monotonic timeline.
+  /// than the sample buffer's own presentation time. They share a clock but
+  /// not an order: a frame's gaze sample is applied only after the async
+  /// pipeline finishes, by which point the next frame's observation has
+  /// landed, so `TrackingPreview` tolerates frame-level reordering instead of
+  /// treating a few milliseconds of backward drift as corruption.
   private func handleObservation(_ observation: FaceObservation?) {
     guard let coordinator else { return }
     let timestamp = ProcessInfo.processInfo.systemUptime
