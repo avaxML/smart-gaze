@@ -43,9 +43,14 @@ public struct TriggerMachine: Sendable {
   /// True from the moment a capture fires until `.presentationEnded`. A
   /// visible explanation must never be replaced by a gaze that wandered.
   public private(set) var isPresenting = false
+  /// Blinks counted in the trailing minute as of the last handled input.
+  public var blinkRate: Double {
+    Double(blinkTimestamps.filter { lastHandledAt - $0 <= 60 }.count)
+  }
 
   private var lastGazePoint: CGPoint?
   private var blinkTimestamps: [TimeInterval] = []
+  private var lastHandledAt: TimeInterval = 0
   // Set when a capture fires; promoted into `.cooldown(until:)` on the next
   // call so a caller can observe the momentary `.firing` state in between.
   private var pendingCooldownUntil: TimeInterval?
@@ -58,6 +63,7 @@ public struct TriggerMachine: Sendable {
 
   public mutating func handle(_ input: TriggerInput) -> [TriggerEffect] {
     let now = timestamp(of: input)
+    lastHandledAt = now
     promotePendingTransitions(at: now)
 
     switch input {
@@ -124,7 +130,7 @@ public struct TriggerMachine: Sendable {
     guard mode == .passiveDwell, state == .idle else { return [] }
 
     let now = fixation.startedAt + fixation.duration
-    return attemptFire(at: fixation.centroid, now: now)
+    return attemptFire(at: fixation.centroid, now: now, fromBlink: false)
   }
 
   private mutating func handleModifierDown(at time: TimeInterval) -> [TriggerEffect] {
@@ -163,7 +169,7 @@ public struct TriggerMachine: Sendable {
       state = .idle
       return []
     case .armed(let region, _):
-      let effects = attemptFire(at: region, now: time)
+      let effects = attemptFire(at: region, now: time, fromBlink: false)
       return effects.isEmpty ? leaveToIdle(emitting: .hideReticle) : effects + [.hideReticle]
     default:
       return []
@@ -180,11 +186,14 @@ public struct TriggerMachine: Sendable {
       return []
     }
 
-    return attemptFire(at: region, now: time)
+    return attemptFire(at: region, now: time, fromBlink: true)
   }
 
-  private mutating func attemptFire(at region: CGPoint, now: TimeInterval) -> [TriggerEffect] {
-    guard !isPresenting, blinkRate(at: now) <= blinkRateCeiling else { return [] }
+  private mutating func attemptFire(
+    at region: CGPoint, now: TimeInterval, fromBlink: Bool
+  ) -> [TriggerEffect] {
+    guard !isPresenting else { return [] }
+    guard !fromBlink || blinkRate(at: now) <= blinkRateCeiling else { return [] }
 
     isPresenting = true
     state = .firing(region: region)

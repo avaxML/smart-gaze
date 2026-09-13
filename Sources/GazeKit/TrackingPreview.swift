@@ -47,6 +47,7 @@ public struct TrackingPreview: Sendable {
   public private(set) var lastIssue: TrackingPreviewIssue?
   public private(set) var lastTimestamp: TimeInterval?
   public var isPresenting: Bool { machine.isPresenting }
+  public var blinkRate: Double { machine.blinkRate }
 
   /// Live progress toward the current dwell window, from the real detector
   /// buffer span and dispersion. `0` when no cluster is forming.

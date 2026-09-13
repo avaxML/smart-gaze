@@ -91,7 +91,7 @@ private func fixation(at point: CGPoint, startingAt start: TimeInterval) -> Fixa
   #expect(captures == 1)
 }
 
-@Test func blinkRateOverCeilingSuppressesCaptureInModifierMode() {
+@Test func blinkRateOverCeilingDoesNotSuppressCaptureInModifierMode() {
   var machine = TriggerMachine(mode: .modifierHeld, blinkRateCeiling: 40)
 
   for index in 0..<41 {
@@ -101,11 +101,13 @@ private func fixation(at point: CGPoint, startingAt start: TimeInterval) -> Fixa
   _ = machine.handle(.modifierDown(20.1))
   _ = machine.handle(.gaze(CGPoint(x: 7, y: 7), 20.2))
 
-  #expect(machine.handle(.modifierUp(20.3)) == [.hideReticle])
-  #expect(machine.state == .idle)
+  #expect(
+    machine.handle(.modifierUp(20.3))
+      == [.capture(at: CGPoint(x: 7, y: 7)), .hideReticle])
+  #expect(machine.state == .firing(region: CGPoint(x: 7, y: 7)))
 }
 
-@Test func blinkRateOverCeilingSuppressesCaptureInDwellMode() {
+@Test func blinkRateOverCeilingDoesNotSuppressCaptureInDwellMode() {
   var machine = TriggerMachine(mode: .passiveDwell, blinkRateCeiling: 40)
 
   for index in 0..<41 {
@@ -113,7 +115,34 @@ private func fixation(at point: CGPoint, startingAt start: TimeInterval) -> Fixa
   }
 
   let point = CGPoint(x: 2, y: 2)
-  #expect(machine.handle(.fixation(fixation(at: point, startingAt: 20.0))) == [])
+  #expect(
+    machine.handle(.fixation(fixation(at: point, startingAt: 20.0))) == [.capture(at: point)])
+}
+
+@Test func squintHoldIgnoresTheBlinkRateCeiling() {
+  var machine = TriggerMachine(mode: .squint, blinkRateCeiling: 40)
+
+  for index in 0..<50 {
+    _ = machine.handle(.blink(.blink, Double(index) * 0.5))
+  }
+
+  #expect(machine.handle(.squint(.started, 25.0)) == [])
+  #expect(
+    machine.handle(.gaze(CGPoint(x: 6, y: 8), 25.1)) == [.showReticle(at: CGPoint(x: 6, y: 8))])
+  #expect(
+    machine.handle(.squint(.ended, 25.2))
+      == [.capture(at: CGPoint(x: 6, y: 8)), .hideReticle])
+}
+
+@Test func doubleBlinkCaptureStillRespectsTheBlinkRateCeiling() {
+  var machine = TriggerMachine(mode: .doubleBlink, blinkRateCeiling: 40)
+
+  #expect(machine.handle(.gaze(CGPoint(x: 6, y: 8), 0.0)) == [])
+  for index in 0..<50 {
+    _ = machine.handle(.blink(.blink, Double(index) * 0.5))
+  }
+
+  #expect(machine.handle(.blink(.doubleBlink, 25.0)) == [])
   #expect(machine.state == .idle)
 }
 

@@ -512,3 +512,38 @@ private final class Counter: @unchecked Sendable {
   await coordinator.updateSquintInputs(from: withoutIris)
   #expect(await coordinator.latestIrisDrop == nil)
 }
+
+/// A hard squint drives the eye aspect ratio far below the blink detector's
+/// closed threshold. The coordinator must not feed those frames to the blink
+/// detector, and must clear it when the squint starts, so a squint is never
+/// counted as one or more blinks.
+@MainActor
+@Test func aSquintNeverReachesTheBlinkDetector() async {
+  var settings = Settings.default
+  settings.activationMode = .squint
+  settings.calibratedBounds = CGRect(x: 0, y: 0, width: 2000, height: 1200)
+  let coordinator = GazeCoordinator(
+    settings: settings,
+    gazePipeline: nil,
+    capturer: FakeCapturer {
+      CapturedRegion(jpeg: oneByOneJPEG(), rect: .zero, displayID: CGMainDisplayID())
+    },
+    bubble: FakeBubble(),
+    makeExplanationStream: { _ in nil })
+
+  await coordinator.handleGazeSample(CGPoint(x: 700, y: 400), at: 0.0)
+
+  // A hard closure at 0.10: at 30 Hz the squint starts on frame 23.
+  for index in 0...30 {
+    let time = Double(index) / 30.0
+    await coordinator.handleObservation(faceObservation(eyesClosed: true, at: time), at: time)
+  }
+  // Reopen long enough to release it. A blink detector that had seen the
+  // closure would emit a blink on the first open frame.
+  for index in 31...46 {
+    let time = Double(index) / 30.0
+    await coordinator.handleObservation(faceObservation(eyesClosed: false, at: time), at: time)
+  }
+
+  #expect(await coordinator.blinkRate == 0)
+}

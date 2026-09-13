@@ -49,6 +49,8 @@ actor GazeCoordinator {
   private(set) var latestIrisDrop: Double?
   private var lastSquintSuppressionLog: TimeInterval?
   private var observationCount = 0
+  /// Blinks the detector has counted, for live diagnostics and tests.
+  var blinkRate: Double { blinkDetector.blinkRate }
   private var headPose = HeadPoseGate()
   private let calibration: CalibrationMap?
   private let headTranslation: HeadTranslationCorrection?
@@ -240,18 +242,29 @@ actor GazeCoordinator {
     observationCount += 1
     let left = eyeAspectRatio(observation.leftEye)
     let right = eyeAspectRatio(observation.rightEye)
-    if let event = blinkDetector.add(left: left, right: right, at: timestamp) {
-      await apply(tracking.handle(.blink(event, timestamp)))
-    }
-    if let event = squintDetector.add(
+    let squintEvent = squintDetector.add(
       left: left, right: right, pitchRadians: latestHeadPitchRadians,
       irisDrop: latestIrisDrop, at: timestamp)
-    {
-      switch event {
-      case .started: LaunchDiagnostics.record(.gaze, "squint started")
-      case .ended: LaunchDiagnostics.record(.gaze, "squint ended")
+    if squintEvent == .started {
+      blinkDetector.reset()
+    }
+    if !squintDetector.isNarrowedRunActive {
+      if let blinkEvent = blinkDetector.add(left: left, right: right, at: timestamp) {
+        await apply(tracking.handle(.blink(blinkEvent, timestamp)))
       }
-      await apply(tracking.handle(.squint(event, timestamp)))
+    }
+    if let squintEvent {
+      switch squintEvent {
+      case .started:
+        LaunchDiagnostics.record(.gaze, "squint started")
+        await apply(tracking.handle(.squint(squintEvent, timestamp)))
+      case .ended:
+        LaunchDiagnostics.record(.gaze, "squint ended")
+        let stateBefore = tracking.state
+        let effects = tracking.handle(.squint(squintEvent, timestamp))
+        await apply(effects)
+        logSquintRelease(from: stateBefore, effects: effects)
+      }
     } else if squintDetector.suppressedNarrowedFrame {
       logSquintSuppression(at: timestamp)
     }
@@ -274,6 +287,36 @@ actor GazeCoordinator {
     let pitch = String(format: "%.3f", latestHeadPitchRadians)
     let drop = latestIrisDrop.map { String(format: "%.3f", $0) } ?? "nil"
     LaunchDiagnostics.record(.gaze, "squint suppressed pitch=\(pitch) drop=\(drop)")
+  }
+
+  /// Records why a released squint did or did not capture: the trigger state
+  /// it released from, whether gaze was live and where, whether a bubble was
+  /// already up, the machine's blink rate and the effects the release produced.
+  private func logSquintRelease(from state: TriggerState, effects: [TriggerEffect]) {
+    let gaze = tracking.lastGazePoint.map { "(\($0.x),\($0.y))" } ?? "nil"
+    let names = effects.map { effect -> String in
+      switch effect {
+      case .capture: "capture"
+      case .showReticle: "showReticle"
+      case .hideReticle: "hideReticle"
+      case .dismissBubble: "dismissBubble"
+      }
+    }
+    LaunchDiagnostics.record(
+      .gaze,
+      "squint release state=\(GazeCoordinator.name(of: state)) tracking=\(tracking.isTracking) "
+        + "lastGaze=\(gaze) presenting=\(tracking.isPresenting) blinkRate=\(tracking.blinkRate) "
+        + "effects=\(names.joined(separator: ","))")
+  }
+
+  nonisolated private static func name(of state: TriggerState) -> String {
+    switch state {
+    case .idle: "idle"
+    case .settling: "settling"
+    case .armed: "armed"
+    case .firing: "firing"
+    case .cooldown: "cooldown"
+    }
   }
 
   // MARK: - Global modifier input

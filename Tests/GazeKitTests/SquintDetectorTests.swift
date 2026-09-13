@@ -372,3 +372,72 @@ private func frame(_ index: Int) -> TimeInterval {
   #expect(SquintDetector.irisDrop(irisCenter: CGPoint(x: 0, y: 120), contour: contour) == 0)
   #expect(SquintDetector.irisDrop(irisCenter: CGPoint(x: 0, y: 100), contour: []) == nil)
 }
+
+@Test func aHardClosureShorterThanTheBlinkGraceNeverStartsASquint() {
+  var detector = SquintDetector()
+  var starts: [Int] = []
+
+  for index in 0...7 {
+    if detector.add(left: 0.10, right: 0.10, pitchRadians: 0, irisDrop: nil, at: frame(index))
+      == .started
+    {
+      starts.append(index)
+    }
+  }
+  for index in 8..<40 {
+    if detector.add(left: 0.30, right: 0.30, pitchRadians: 0, irisDrop: nil, at: frame(index))
+      == .started
+    {
+      starts.append(index)
+    }
+  }
+
+  #expect(starts.isEmpty)
+  #expect(!detector.isNarrowedRunActive)
+  #expect(!detector.isSquinting)
+}
+
+@Test func aHardClosureStartsASquintAfterTheBlinkGraceAndHold() {
+  var detector = SquintDetector()
+  var starts: [Int] = []
+
+  for index in 0...24 {
+    if detector.add(left: 0.10, right: 0.10, pitchRadians: 0, irisDrop: nil, at: frame(index))
+      == .started
+    {
+      starts.append(index)
+    }
+  }
+
+  #expect(starts == [23])
+  #expect(detector.isSquinting)
+  #expect(detector.isNarrowedRunActive)
+}
+
+@Test func isNarrowedRunActiveClearsWhenAHardClosureReleases() {
+  var detector = SquintDetector()
+  var starts: [Int] = []
+
+  for index in 0...24 {
+    if detector.add(left: 0.10, right: 0.10, pitchRadians: 0, irisDrop: nil, at: frame(index))
+      == .started
+    {
+      starts.append(index)
+    }
+  }
+  #expect(starts == [23])
+  #expect(detector.isNarrowedRunActive)
+
+  var ends: [Int] = []
+  for index in 25...45 {
+    if detector.add(left: 0.30, right: 0.30, pitchRadians: 0, irisDrop: nil, at: frame(index))
+      == .ended
+    {
+      ends.append(index)
+    }
+  }
+
+  #expect(ends == [33])
+  #expect(!detector.isNarrowedRunActive)
+  #expect(!detector.isSquinting)
+}

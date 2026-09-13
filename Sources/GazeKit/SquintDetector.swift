@@ -24,6 +24,9 @@ public struct SquintDetector: Equatable, Sendable {
   public static let baselineSmoothing = 0.02
   public static let squintRatio = 0.72
   public static let closedThreshold = 0.15
+  /// A closure no longer than this is a blink; a longer one is a squint whose
+  /// eyes are shut tight and whose ratio sits below `closedThreshold`.
+  public static let blinkMaximumDuration: TimeInterval = 0.30
   public static let holdDuration: TimeInterval = 0.45
   public static let releaseDuration: TimeInterval = 0.25
   public static let gapTolerance: TimeInterval = 0.15
@@ -35,10 +38,14 @@ public struct SquintDetector: Equatable, Sendable {
   public private(set) var pitchBaseline: Double
   /// True from the frame a squint starts until the frame it ends.
   public private(set) var isSquinting = false
+  /// True while narrowed eyes are being tracked towards a squint: from the
+  /// frame the run begins, through `.started`, until the release opens it.
+  public var isNarrowedRunActive: Bool { isSquinting || runStart != nil }
   /// True when the most recent `add` saw narrowed eyes that a gate rejected.
   public private(set) var suppressedNarrowedFrame = false
   private var runStart: TimeInterval?
   private var openRunStart: TimeInterval?
+  private var closureStart: TimeInterval?
 
   public init() {
     openBaseline = SquintDetector.initialOpenBaseline
@@ -69,11 +76,22 @@ public struct SquintDetector: Equatable, Sendable {
     let average = (left + right) / 2
     let narrowedBelow = SquintDetector.squintRatio * openBaseline
 
-    if average < SquintDetector.closedThreshold {
-      return nil
+    let isClosed = average < SquintDetector.closedThreshold
+    if isClosed {
+      if closureStart == nil {
+        closureStart = timestamp
+      }
+    } else {
+      closureStart = nil
     }
+    let closureExceededBlink =
+      isClosed && timestamp - (closureStart ?? timestamp) > SquintDetector.blinkMaximumDuration
+    let isNarrowed = isClosed ? closureExceededBlink : average < narrowedBelow
 
-    guard average < narrowedBelow else {
+    guard isNarrowed else {
+      // The first `blinkMaximumDuration` of a closure is a blink candidate, not
+      // a squint, so it neither adapts the baseline nor opens the run.
+      guard !isClosed else { return nil }
       adaptBaseline(towards: average)
       if pitchRadians.isFinite {
         adaptPitchBaseline(towards: pitchRadians)
@@ -112,7 +130,11 @@ public struct SquintDetector: Equatable, Sendable {
 
     openRunStart = nil
     if runStart == nil {
-      runStart = timestamp
+      if isClosed, let closureStart {
+        runStart = closureStart + SquintDetector.blinkMaximumDuration
+      } else {
+        runStart = timestamp
+      }
     }
     guard !isSquinting, let start = runStart, timestamp - start >= SquintDetector.holdDuration
     else {
@@ -129,6 +151,7 @@ public struct SquintDetector: Equatable, Sendable {
     suppressedNarrowedFrame = false
     runStart = nil
     openRunStart = nil
+    closureStart = nil
   }
 
   private mutating func adaptBaseline(towards average: Double) {
