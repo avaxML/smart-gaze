@@ -51,6 +51,8 @@ actor GazeCoordinator {
   private var observationCount = 0
   /// Blinks the detector has counted, for live diagnostics and tests.
   var blinkRate: Double { blinkDetector.blinkRate }
+  /// The reducer's current trigger state, for live diagnostics and tests.
+  var triggerState: TriggerState { tracking.state }
   private var headPose = HeadPoseGate()
   private let calibration: CalibrationMap?
   private let headTranslation: HeadTranslationCorrection?
@@ -125,6 +127,23 @@ actor GazeCoordinator {
 
   func updateSmoothing(level: Double) {
     gazeFilter = OneEuroPointFilter(smoothing: level)
+  }
+
+  /// Rebuilds the trigger reducer with a new activation mode, so a Settings
+  /// change takes effect without restarting the camera or reloading the
+  /// models. Any in-progress hold or fixation is dropped and the reticle is
+  /// hidden; a bubble that is already presented is left alone. The modifier
+  /// key is carried only for the applied-live log line.
+  func updateActivation(mode: ActivationMode, modifierKey: ModifierKey) async {
+    tracking = TrackingPreview(
+      mode: mode,
+      cooldown: 3.0,
+      bounds: tracking.bounds,
+      dwellWindow: tracking.dwellWindow,
+      dispersionThreshold: tracking.dispersionThreshold)
+    LaunchDiagnostics.record(
+      .modifier, "mode=\(mode.rawValue) key=\(modifierKey.rawValue) applied live")
+    await apply([.hideReticle])
   }
 
   func updateVerticalFocalLength(pixels: Double) async {

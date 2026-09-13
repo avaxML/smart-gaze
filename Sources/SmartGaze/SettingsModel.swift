@@ -86,23 +86,33 @@ final class SettingsModel: ObservableObject {
     persist()
   }
 
+  var onActivationChanged: (() -> Void)?
+
+  func setActivationMode(_ mode: ActivationMode) {
+    guard settings.activationMode != mode else { return }
+    settings.activationMode = mode
+    persist()
+    onActivationChanged?()
+  }
+
+  func setModifierKey(_ key: ModifierKey) {
+    guard settings.modifierKey != key else { return }
+    settings.modifierKey = key
+    persist()
+    onActivationChanged?()
+  }
+
   func activationModeBinding() -> Binding<ActivationMode> {
     Binding(
       get: { self.settings.activationMode },
-      set: {
-        self.settings.activationMode = $0
-        self.persist()
-      }
+      set: { self.setActivationMode($0) }
     )
   }
 
   func modifierKeyBinding() -> Binding<ModifierKey> {
     Binding(
       get: { self.settings.modifierKey },
-      set: {
-        self.settings.modifierKey = $0
-        self.persist()
-      }
+      set: { self.setModifierKey($0) }
     )
   }
 

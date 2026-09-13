@@ -274,3 +274,24 @@ private func makeModel(
   #expect(model.settings.focalLength(forCameraID: "camera-one") == replacement)
   #expect(store.savedCount == 3)
 }
+
+@MainActor
+@Test func changingTheActivationNotifiesOnceAndIgnoresRepeats() {
+  let model = makeModel()
+  var changes = 0
+  model.onActivationChanged = { changes += 1 }
+
+  model.activationModeBinding().wrappedValue = .passiveDwell
+  #expect(model.settings.activationMode == .passiveDwell)
+  #expect(changes == 1)
+
+  model.activationModeBinding().wrappedValue = .passiveDwell
+  #expect(changes == 1)
+
+  model.modifierKeyBinding().wrappedValue = .control
+  #expect(model.settings.modifierKey == .control)
+  #expect(changes == 2)
+
+  model.modifierKeyBinding().wrappedValue = .control
+  #expect(changes == 2)
+}

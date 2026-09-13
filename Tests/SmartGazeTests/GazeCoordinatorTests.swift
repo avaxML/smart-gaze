@@ -597,3 +597,67 @@ private final class Counter: @unchecked Sendable {
   await coordinator.waitUntilCaptureSettled()
   #expect(captureCalls.value == 1)
 }
+
+/// A Settings change from squint to modifier held must take effect on the
+/// running coordinator without a camera restart: the same hold that captured
+/// nothing in squint captures once the new mode is applied.
+@MainActor
+@Test func applyingModifierHeldLiveMakesTheSameHoldCapture() async {
+  let captureCalls = Counter()
+  let capturer = FakeCapturer {
+    captureCalls.increment()
+    return CapturedRegion(jpeg: oneByOneJPEG(), rect: .zero, displayID: CGMainDisplayID())
+  }
+
+  var settings = Settings.default
+  settings.activationMode = .squint
+  settings.calibratedBounds = CGRect(x: 0, y: 0, width: 2000, height: 1200)
+  let coordinator = GazeCoordinator(
+    settings: settings,
+    gazePipeline: nil,
+    capturer: capturer,
+    bubble: FakeBubble(),
+    makeExplanationStream: { _ in nil })
+
+  await coordinator.handleModifierDown(at: 0.0)
+  await coordinator.handleGazeSample(CGPoint(x: 700, y: 400), at: 0.1)
+  await coordinator.handleModifierUp(at: 0.2)
+  await coordinator.waitUntilCaptureSettled()
+  #expect(captureCalls.value == 0)
+
+  await coordinator.updateActivation(mode: .modifierHeld, modifierKey: .option)
+
+  await coordinator.handleModifierDown(at: 1.0)
+  await coordinator.handleGazeSample(CGPoint(x: 700, y: 400), at: 1.1)
+  await coordinator.handleModifierUp(at: 1.2)
+  await coordinator.waitUntilCaptureSettled()
+  #expect(captureCalls.value == 1)
+}
+
+/// Changing the activation mode during an armed hold drops the hold, hides the
+/// reticle and leaves the machine idle instead of preserving stale arming.
+@MainActor
+@Test func applyingAnActivationChangeDuringAnArmedHoldIdlesTheMachine() async {
+  let reticle = FakeReticle()
+  var settings = Settings.default
+  settings.calibratedBounds = CGRect(x: 0, y: 0, width: 2000, height: 1200)
+  let coordinator = GazeCoordinator(
+    settings: settings,
+    gazePipeline: nil,
+    capturer: FakeCapturer {
+      CapturedRegion(jpeg: oneByOneJPEG(), rect: .zero, displayID: CGMainDisplayID())
+    },
+    bubble: FakeBubble(),
+    reticle: reticle,
+    makeExplanationStream: { _ in nil })
+
+  await coordinator.handleModifierDown(at: 0.0)
+  await coordinator.handleGazeSample(CGPoint(x: 300, y: 200), at: 0.1)
+  #expect(reticle.shown.count == 1)
+  #expect(await coordinator.triggerState == .armed(region: CGPoint(x: 300, y: 200), since: 0.0))
+
+  await coordinator.updateActivation(mode: .passiveDwell, modifierKey: .option)
+
+  #expect(reticle.hideCount == 1)
+  #expect(await coordinator.triggerState == .idle)
+}

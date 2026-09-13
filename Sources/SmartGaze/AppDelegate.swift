@@ -64,6 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     camera.onError = { [weak self] error in self?.presentCameraError(error) }
     settingsModel.onCalibrationChanged = { [weak self] in self?.calibrationDidChange() }
+    settingsModel.onActivationChanged = { [weak self] in self?.activationDidChange() }
     settingsModel.onGazeSmoothingChanged = { [weak self] level in
       guard let coordinator = self?.coordinator else { return }
       Task { await coordinator.updateSmoothing(level: level) }
@@ -176,18 +177,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   private func finishStartingGazePipeline(_ pipeline: GazePipeline?) {
     let settings = settingsModel.settings
-
-    // Without Accessibility the modifier is never seen, so the app stays in
-    // the mode the user chose and fires nothing. Silently switching to dwell
-    // here once turned a hold-to-ask app into one that captured on every
-    // glance, and the user never knew why. The menu says what is missing.
-    let needsAccessibility = settings.activationMode == .modifierHeld
     let accessibilityGranted = AXIsProcessTrusted()
-    accessibilityDegraded = needsAccessibility && !accessibilityGranted
-    if accessibilityDegraded {
-      refreshMenu()
-      watchForAccessibilityGrant()
-    }
 
     let coordinator = GazeCoordinator(
       settings: settings,
@@ -215,8 +205,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       .modifier,
       "mode=\(settings.activationMode.rawValue) accessibility=\(accessibilityGranted ? "granted" : "denied")"
     )
-    guard needsAccessibility, accessibilityGranted else { return }
-    let monitor = ModifierMonitor(modifierKey: settings.modifierKey) { [weak self] down, time in
+    applyModifierMonitor(mode: settings.activationMode, key: settings.modifierKey)
+  }
+
+  /// Applies an activation-mode or modifier-key change to the live session.
+  /// The coordinator rebuilds its trigger reducer, and the modifier tap is
+  /// started, restarted with the new key, or stopped to match. The camera and
+  /// the loaded models are left untouched.
+  private func activationDidChange() {
+    guard let coordinator else { return }
+    let settings = settingsModel.settings
+    applyModifierMonitor(mode: settings.activationMode, key: settings.modifierKey)
+    Task {
+      await coordinator.updateActivation(
+        mode: settings.activationMode, modifierKey: settings.modifierKey)
+    }
+  }
+
+  /// Starts, restarts or stops the global modifier tap so it matches `mode`
+  /// and `key`, and keeps the Accessibility note in step. Reuses the same
+  /// trust check and degradation handling as the pipeline start.
+  private func applyModifierMonitor(mode: ActivationMode, key: ModifierKey) {
+    modifierMonitor?.stop()
+    modifierMonitor = nil
+
+    guard mode == .modifierHeld, AXIsProcessTrusted() else {
+      accessibilityWatch?.invalidate()
+      accessibilityWatch = nil
+      // Without Accessibility the modifier is never seen, so the app stays in
+      // the mode the user chose and fires nothing. The menu says what is
+      // missing rather than silently switching to a mode that captures on
+      // every glance.
+      accessibilityDegraded = mode == .modifierHeld
+      if accessibilityDegraded {
+        watchForAccessibilityGrant()
+      }
+      refreshMenu()
+      return
+    }
+
+    let monitor = ModifierMonitor(modifierKey: key) { [weak self] down, time in
       guard let self else { return }
       LaunchDiagnostics.record(.modifier, down ? "down" : "up")
       Task {
@@ -227,14 +255,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
       }
     }
-    if monitor.start() == .started {
-      LaunchDiagnostics.record(.modifier, "tap started key=\(settings.modifierKey.rawValue)")
-      modifierMonitor = monitor
-    } else {
+    guard monitor.start() == .started else {
       LaunchDiagnostics.record(.modifier, "tap failed")
       accessibilityDegraded = true
       refreshMenu()
+      return
     }
+    LaunchDiagnostics.record(.modifier, "tap started key=\(key.rawValue)")
+    modifierMonitor = monitor
+    accessibilityDegraded = false
+    accessibilityWatch?.invalidate()
+    accessibilityWatch = nil
+    refreshMenu()
   }
 
   /// The coordinator holds the calibration it was built with. A calibration
